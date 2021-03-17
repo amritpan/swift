@@ -10,47 +10,24 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// Thread Sanitizer support for the Swift Task runtime
+// Thread Sanitizer support for the Swift Task runtime.
 //
 //===----------------------------------------------------------------------===//
 
 #include "TaskPrivate.h"
 
-#if defined(_WIN32)
-#define NOMINMAX
-#include <windows.h>
-#else
-#include <dlfcn.h>
-#endif
-
 namespace {
 using TSanFunc = void(void *);
 TSanFunc *tsan_acquire, *tsan_release;
-
-TSanFunc *loadSymbol(const char *name) {
-#if defined(_WIN32)
-  return (TSanFunc *)GetProcAddress(GetModuleHandle(NULL), name);
-#else
-  return (TSanFunc *)dlsym(RTLD_DEFAULT, name);
-#endif
-}
-
-swift::swift_once_t initOnceToken;
-void initializeThreadSanitizer(void *unused) {
-  tsan_acquire = loadSymbol("__tsan_acquire");
-  tsan_release = loadSymbol("__tsan_release");
-}
 } // anonymous namespace
 
 void swift::_swift_tsan_acquire(void *addr) {
-  swift_once(&initOnceToken, initializeThreadSanitizer, nullptr);
   if (tsan_acquire) {
     tsan_acquire(addr);
   }
 }
 
 void swift::_swift_tsan_release(void *addr) {
-  swift_once(&initOnceToken, initializeThreadSanitizer, nullptr);
   if (tsan_release) {
     tsan_release(addr);
   }
