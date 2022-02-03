@@ -59,6 +59,7 @@
 #include "swift/Basic/Statistic.h"
 #include "swift/Basic/TypeID.h"
 #include "swift/Demangling/ManglingMacros.h"
+#include "swift/Sema/ConstraintSystem.h"
 
 #include "clang/Basic/CharInfo.h"
 #include "clang/Basic/Module.h"
@@ -1807,8 +1808,8 @@ bool PatternBindingDecl::isDefaultInitializable(unsigned i) const {
   // initializer, cannot default-initialize.
   if (auto singleVar = getSingleVar()) {
     if (auto wrapperInfo = singleVar->getAttachedPropertyWrapperTypeInfo(0)) {
-      if (!singleVar->allAttachedPropertyWrappersHaveWrappedValueInit())
-        return false;
+      if (singleVar->allAttachedPropertyWrappersHaveWrappedValueInit())
+        return true;
     }
   }
 
@@ -6166,12 +6167,55 @@ bool VarDecl::hasExternalPropertyWrapper() const {
 /// Whether all of the attached property wrappers have an init(wrappedValue:)
 /// initializer.
 bool VarDecl::allAttachedPropertyWrappersHaveWrappedValueInit() const {
+  auto attrs = getAttachedPropertyWrappers();
+  if (attrs.empty())
+    return false;
+
   for (unsigned i : indices(getAttachedPropertyWrappers())) {
-    if (!getAttachedPropertyWrapperTypeInfo(i).wrappedValueInit)
+    auto *attr = attrs[i];
+
+    if (!attr && getAttachedPropertyWrapperTypeInfo(i).wrappedValueInit) {
+      continue;
+    }
+
+    if (!attr) {
       return false;
+    }
+
+    ASTContext &ctx = this->getASTContext();
+    auto *dc = this->getDeclContext();
+    auto nominal = evaluateOrDefault(ctx.evaluator,
+                                     CustomAttrNominalRequest{attr, dc}, nullptr);
+    SmallVector<ValueDecl *, 2> inits;
+    nominal->lookupQualified(nominal, DeclNameRef::createConstructor(), NL_QualifiedDefault, inits);
+
+    for (auto *init : inits) {
+      auto *fnType = init->getInterfaceType()->castTo<AnyFunctionType>();
+      auto params = fnType->getParams();
+      ParameterListInfo paramInfo(params, init, false);
+
+      SmallVector<AnyFunctionType::Param, 8> args;
+      auto placeholder = PlaceholderType::get(ctx, const_cast<VarDecl*>(this));
+      args.push_back(AnyFunctionType::Param(placeholder, ctx.Id_wrappedValue));
+
+      if (auto attrArgsList = attr->getArgs()) {
+        for (auto attrArg : *attrArgsList) {
+          auto argLabel = attrArg.getLabel();
+          args.push_back(AnyFunctionType::Param(placeholder, argLabel));
+        }
+      }
+
+      using namespace constraints;
+      MatchCallArgumentListener noOpListener;
+      auto matchCallResult = matchCallArguments(args, params,
+        paramInfo, None, /*allow fixes*/ false, noOpListener, None);
+
+      if (matchCallResult.hasValue()) {
+        return true;
+      }
+    }
   }
-  
-  return true;
+  return false;
 }
 
 PropertyWrapperTypeInfo
