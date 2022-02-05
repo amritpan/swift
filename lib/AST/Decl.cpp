@@ -1807,10 +1807,10 @@ bool PatternBindingDecl::isDefaultInitializable(unsigned i) const {
   // If one of the attached wrappers is missing a wrappedValue
   // initializer, cannot default-initialize.
   if (auto singleVar = getSingleVar()) {
-    if (auto wrapperInfo = singleVar->getAttachedPropertyWrapperTypeInfo(0)) {
+//    if (auto wrapperInfo = singleVar->getAttachedPropertyWrapperTypeInfo(0)) {
       if (singleVar->allAttachedPropertyWrappersHaveWrappedValueInit())
         return true;
-    }
+//    }
   }
 
   if (entry.getPattern()->isNeverDefaultInitializable())
@@ -6190,9 +6190,12 @@ bool VarDecl::allAttachedPropertyWrappersHaveWrappedValueInit() const {
     nominal->lookupQualified(nominal, DeclNameRef::createConstructor(), NL_QualifiedDefault, inits);
 
     for (auto *init : inits) {
+      using namespace constraints;
       auto *fnType = init->getInterfaceType()->castTo<AnyFunctionType>();
+      auto convertedfnType = fnType->getResult()->castTo<AnyFunctionType>();
       auto params = fnType->getParams();
-      ParameterListInfo paramInfo(params, init, false);
+      auto convertedParams = convertedfnType->getParams();
+      ParameterListInfo paramInfo(convertedParams, init, false);
 
       SmallVector<AnyFunctionType::Param, 8> args;
       auto placeholder = PlaceholderType::get(ctx, const_cast<VarDecl*>(this));
@@ -6205,9 +6208,9 @@ bool VarDecl::allAttachedPropertyWrappersHaveWrappedValueInit() const {
         }
       }
 
-      using namespace constraints;
+
       MatchCallArgumentListener noOpListener;
-      auto matchCallResult = matchCallArguments(args, params,
+      auto matchCallResult = matchCallArguments(args, convertedParams,
         paramInfo, None, /*allow fixes*/ false, noOpListener, None);
 
       if (matchCallResult.hasValue()) {
