@@ -706,12 +706,32 @@ public:
   bool isCached() const { return true; }
 };
 
+///
+class PropertyWrapperDeferredInitRequest :
+    public SimpleRequest<PropertyWrapperDeferredInitRequest,
+                         bool(VarDecl *),
+                         RequestFlags::Cached> {
+public:
+  using SimpleRequest::SimpleRequest;
+
+private:
+  friend SimpleRequest;
+
+  // Evaluation.
+  bool
+  evaluate(Evaluator &evaluator, VarDecl *var) const;
+
+public:
+  // Caching
+  bool isCached() const { return true; }
+};
+
 /// Request information about initialization of the backing property
 /// for properties that have attached property wrappers.
 class PropertyWrapperInitializerInfoRequest :
     public SimpleRequest<PropertyWrapperInitializerInfoRequest,
-                         PropertyWrapperInitializerInfo(VarDecl *),
-                         RequestFlags::Cached> {
+                           PropertyWrapperInitializerInfo(VarDecl *),
+                           RequestFlags::Cached> {
 public:
   using SimpleRequest::SimpleRequest;
 

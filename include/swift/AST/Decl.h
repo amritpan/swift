@@ -5088,7 +5088,7 @@ public:
 
   /// Whether all of the attached property wrappers have an init(wrappedValue:)
   /// initializer.
-  bool allAttachedPropertyWrappersHaveWrappedValueInit() const;
+  bool allAttachedPropertyWrappersHaveWrappedValueInit();
   
   /// Retrieve the type of the attached property wrapper as a contextual
   /// type.
@@ -5176,7 +5176,7 @@ public:
   ///
   /// Or when there is no initializer but each composed property wrapper has
   /// a suitable `init(wrappedValue:)`.
-  bool isPropertyMemberwiseInitializedWithWrappedType() const;
+  bool isPropertyMemberwiseInitializedWithWrappedType();
 
   /// Return the interface type of the value used for the 'wrappedValue:'
   /// parameter when initializing a property wrapper.

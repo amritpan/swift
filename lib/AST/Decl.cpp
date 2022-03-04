@@ -1528,6 +1528,13 @@ bool PatternBindingEntry::isInitialized(bool onlyExplicit) const {
   if (getInit() && (!onlyExplicit || getEqualLoc().isValid()))
     return true;
 
+  // Initialized via a property wrapper.
+//  if (auto var = getPattern()->getSingleVar()) {
+//    auto customAttrs = var->getAttachedPropertyWrappers();
+//    if (customAttrs.size() > 0 && customAttrs[0]->hasArgs())
+//      return true;
+//  }
+
   return false;
 }
 
@@ -6159,58 +6166,9 @@ bool VarDecl::hasExternalPropertyWrapper() const {
 
 /// Whether all of the attached property wrappers have an init(wrappedValue:)
 /// initializer.
-bool VarDecl::allAttachedPropertyWrappersHaveWrappedValueInit() const {
-  auto attrs = getAttachedPropertyWrappers();
-  if (attrs.empty())
-    return false;
-
-  for (unsigned i : indices(getAttachedPropertyWrappers())) {
-    auto *attr = attrs[i];
-
-    if (!attr && getAttachedPropertyWrapperTypeInfo(i).wrappedValueInit) {
-      continue;
-    }
-
-    if (!attr) {
-      return false;
-    }
-
-    ASTContext &ctx = this->getASTContext();
-    auto *dc = this->getDeclContext();
-    auto nominal = evaluateOrDefault(ctx.evaluator,
-                                     CustomAttrNominalRequest{attr, dc}, nullptr);
-    SmallVector<ValueDecl *, 2> inits;
-    nominal->lookupQualified(nominal, DeclNameRef::createConstructor(), NL_QualifiedDefault, inits);
-
-    for (auto *init : inits) {
-      using namespace constraints;
-      auto *fnType = init->getInterfaceType()->castTo<AnyFunctionType>();
-      auto convertedfnType = fnType->getResult()->castTo<AnyFunctionType>();
-      auto params = convertedfnType->getParams();
-      ParameterListInfo paramInfo(params, init, false);
-
-      SmallVector<AnyFunctionType::Param, 8> args;
-      auto placeholder = PlaceholderType::get(ctx, const_cast<VarDecl*>(this));
-      args.push_back(AnyFunctionType::Param(placeholder, ctx.Id_wrappedValue));
-
-      if (auto attrArgsList = attr->getArgs()) {
-        for (auto attrArg : *attrArgsList) {
-          auto argLabel = attrArg.getLabel();
-          args.push_back(AnyFunctionType::Param(placeholder, argLabel));
-        }
-      }
-
-
-      MatchCallArgumentListener noOpListener;
-      auto matchCallResult = matchCallArguments(args, params,
-        paramInfo, None, /*allow fixes*/ false, noOpListener, None);
-
-      if (matchCallResult.hasValue()) {
-        return true;
-      }
-    }
-  }
-  return false;
+bool VarDecl::allAttachedPropertyWrappersHaveWrappedValueInit() {
+    return evaluateOrDefault(getASTContext().evaluator,
+                               PropertyWrapperDeferredInitRequest{this}, false);
 }
 
 PropertyWrapperTypeInfo
@@ -6337,7 +6295,7 @@ VarDecl *VarDecl::getLazyStorageProperty() const {
       {});
 }
 
-bool VarDecl::isPropertyMemberwiseInitializedWithWrappedType() const {
+bool VarDecl::isPropertyMemberwiseInitializedWithWrappedType() {
   auto customAttrs = getAttachedPropertyWrappers();
   if (customAttrs.empty())
     return false;
