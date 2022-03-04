@@ -2830,8 +2830,7 @@ PropertyWrapperAuxiliaryVariablesRequest::evaluate(Evaluator &evaluator,
 }
 
 bool
-PropertyWrapperDeferredInitRequest::evaluate(Evaluator &evaluator,
-VarDecl *var) const {
+PropertyWrapperDeferredInitRequest::evaluate(Evaluator &evaluator, VarDecl *var) const {
   auto attrs = var->getAttachedPropertyWrappers();
   if (attrs.empty())
     return false;
