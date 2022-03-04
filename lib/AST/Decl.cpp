@@ -1528,13 +1528,6 @@ bool PatternBindingEntry::isInitialized(bool onlyExplicit) const {
   if (getInit() && (!onlyExplicit || getEqualLoc().isValid()))
     return true;
 
-  // Initialized via a property wrapper.
-  if (auto var = getPattern()->getSingleVar()) {
-    auto customAttrs = var->getAttachedPropertyWrappers();
-    if (customAttrs.size() > 0 && customAttrs[0]->hasArgs())
-      return true;
-  }
-
   return false;
 }
 
@@ -1807,10 +1800,10 @@ bool PatternBindingDecl::isDefaultInitializable(unsigned i) const {
   // If one of the attached wrappers is missing a wrappedValue
   // initializer, cannot default-initialize.
   if (auto singleVar = getSingleVar()) {
-//    if (auto wrapperInfo = singleVar->getAttachedPropertyWrapperTypeInfo(0)) {
+    if (auto wrapperInfo = singleVar->getAttachedPropertyWrapperTypeInfo(0)) {
       if (singleVar->allAttachedPropertyWrappersHaveWrappedValueInit())
         return true;
-//    }
+    }
   }
 
   if (entry.getPattern()->isNeverDefaultInitializable())
@@ -6193,9 +6186,8 @@ bool VarDecl::allAttachedPropertyWrappersHaveWrappedValueInit() const {
       using namespace constraints;
       auto *fnType = init->getInterfaceType()->castTo<AnyFunctionType>();
       auto convertedfnType = fnType->getResult()->castTo<AnyFunctionType>();
-      auto params = fnType->getParams();
-      auto convertedParams = convertedfnType->getParams();
-      ParameterListInfo paramInfo(convertedParams, init, false);
+      auto params = convertedfnType->getParams();
+      ParameterListInfo paramInfo(params, init, false);
 
       SmallVector<AnyFunctionType::Param, 8> args;
       auto placeholder = PlaceholderType::get(ctx, const_cast<VarDecl*>(this));
@@ -6210,7 +6202,7 @@ bool VarDecl::allAttachedPropertyWrappersHaveWrappedValueInit() const {
 
 
       MatchCallArgumentListener noOpListener;
-      auto matchCallResult = matchCallArguments(args, convertedParams,
+      auto matchCallResult = matchCallArguments(args, params,
         paramInfo, None, /*allow fixes*/ false, noOpListener, None);
 
       if (matchCallResult.hasValue()) {
