@@ -201,7 +201,7 @@ SWIFT_REQUEST(TypeChecker, PropertyWrapperAuxiliaryVariablesRequest,
 SWIFT_REQUEST(TypeChecker, PropertyWrapperInitializerInfoRequest,
               PropertyWrapperInitializerInfo(VarDecl *), Cached,
               NoLocationInfo)
-SWIFT_REQUEST(TypeChecker, PropertyWrapperSupportsDeferredInitializationRequest,
+SWIFT_REQUEST(TypeChecker, PropertyWrapperDeferredInitRequest,
               bool(VarDecl *), Cached,
               NoLocationInfo)
 SWIFT_REQUEST(TypeChecker, PropertyWrapperBackingPropertyTypeRequest,
