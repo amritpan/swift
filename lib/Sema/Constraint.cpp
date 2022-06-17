@@ -461,12 +461,12 @@ void Constraint::print(llvm::raw_ostream &Out, SourceManager *sm) const {
   case ConstraintKind::OptionalObject:
       Out << " optional with object type "; break;
   case ConstraintKind::BindOverload: {
-    Out << " bound to ";
+    Out << " : ";
     auto overload = getOverloadChoice();
     auto printDecl = [&] {
       auto decl = overload.getDecl();
-      decl->dumpRef(Out);
-      Out << " : " << decl->getInterfaceType();
+//      decl->dumpRef(Out);
+      Out << decl->getInterfaceType();
     };
 
     switch (overload.getKind()) {
@@ -559,11 +559,11 @@ void Constraint::print(llvm::raw_ostream &Out, SourceManager *sm) const {
     fix->print(Out);
   }
 
-  if (Locator) {
-    Out << " [[";
-    Locator->dump(sm, Out);
-    Out << "]];";
-  }
+//  if (Locator) {
+//    Out << " [[";
+//    Locator->dump(sm, Out);
+//    Out << "]];";
+//  }
 }
 
 void Constraint::dump(SourceManager *sm) const {
