@@ -5943,7 +5943,6 @@ public:
   bool isUnaryOperator() const;
 
   void print(llvm::raw_ostream &Out, SourceManager *SM) const {
-    Out << "disjunction choice ";
     Choice->print(Out, SM);
   }
 

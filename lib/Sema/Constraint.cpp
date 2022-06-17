@@ -465,13 +465,11 @@ void Constraint::print(llvm::raw_ostream &Out, SourceManager *sm) const {
     auto overload = getOverloadChoice();
     auto printDecl = [&] {
       auto decl = overload.getDecl();
-//      decl->dumpRef(Out);
       Out << decl->getInterfaceType();
     };
 
     switch (overload.getKind()) {
     case OverloadChoiceKind::Decl:
-      Out << "decl ";
       printDecl();
       break;
     case OverloadChoiceKind::DeclViaDynamic:
