@@ -470,11 +470,7 @@ public:
     return Info.AssociatedCodeCompletionToken;
   }
 
-  void forEachLiteralRequirement(
-      llvm::function_ref<void(KnownProtocolKind)> callback) const;
-
-  /// Return a literal requirement that has the most impact on the binding score.
-  LiteralBindingKind getLiteralForScore() const;
+  LiteralBindingKind getLiteralKind() const;
 
   /// Check if this binding is favored over a disjunction e.g.
   /// if it has only concrete types or would resolve a closure.
