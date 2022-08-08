@@ -6,7 +6,8 @@ add_swift_unittest(swiftSemaTests
   ConstraintSimplificationTests.cpp
   UnresolvedMemberLookupTests.cpp
   PlaceholderTypeInferenceTests.cpp
-  SolutionFilteringTests.cpp)
+  SolutionFilteringTests.cpp
+  ConstraintTest.cpp)
 
 target_link_libraries(swiftSemaTests
   PRIVATE
