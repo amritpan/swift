@@ -866,6 +866,26 @@ public:
   bool isCached() const { return true; }
 };
 
+/// Request information about \c init(wrappedValue:) initializer or \c
+/// wrappedValue base type for out-of-line initialization for properties that
+/// have attached property wrappers.
+class PropertyWrapperDeferredInitRequest
+    : public SimpleRequest<PropertyWrapperDeferredInitRequest, bool(VarDecl *),
+                           RequestFlags::Cached> {
+public:
+  using SimpleRequest::SimpleRequest;
+
+private:
+  friend SimpleRequest;
+
+  // Evaluation.
+  bool evaluate(Evaluator &eval, VarDecl *var) const;
+
+public:
+  // Caching.
+  bool isCached() const { return true; }
+};
+
 /// Retrieve the structural type of an alias type.
 class StructuralTypeRequest :
     public SimpleRequest<StructuralTypeRequest,

@@ -3057,6 +3057,61 @@ PropertyWrapperAuxiliaryVariablesRequest::evaluate(Evaluator &evaluator,
   return PropertyWrapperAuxiliaryVariables(backingVar, projectionVar, wrappedValueVar);
 }
 
+bool PropertyWrapperDeferredInitRequest::evaluate(Evaluator &evaluator,
+                                                  VarDecl *var) const {
+  auto attrs = var->getAttachedPropertyWrappers();
+  if (attrs.empty())
+    return false;
+
+  for (unsigned i : indices(attrs)) {
+    auto *attr = attrs[i];
+
+    if (!attr && var->getAttachedPropertyWrapperTypeInfo(i).wrappedValueInit)
+      continue;
+
+    if (!attr)
+      return false;
+
+    ASTContext &ctx = var->getASTContext();
+    auto *dc = var->getDeclContext();
+    auto nominal = evaluateOrDefault(
+        ctx.evaluator, CustomAttrNominalRequest{attr, dc}, nullptr);
+    SmallVector<ValueDecl *, 2> inits;
+    nominal->lookupQualified(nominal, DeclNameRef::createConstructor(),
+                             NL_QualifiedDefault, inits);
+
+    for (auto *init : inits) {
+      using namespace constraints;
+      auto *fnType = init->getInterfaceType()->castTo<AnyFunctionType>();
+      auto convertedFnType = fnType->getResult()->castTo<AnyFunctionType>();
+      auto params = convertedFnType->getParams();
+      ParameterListInfo paramInfo(params, init, false);
+
+      SmallVector<AnyFunctionType::Param, 8> args;
+      auto placeholderType =
+          PlaceholderType::get(ctx, const_cast<VarDecl *>(var));
+      args.push_back(
+          AnyFunctionType::Param(placeholderType, ctx.Id_wrappedValue));
+
+      if (auto attrArgs = attr->getArgs()) {
+        for (auto attrArg : *attrArgs) {
+          auto argLabel = attrArg.getLabel();
+          args.push_back(AnyFunctionType::Param(placeholderType, argLabel));
+        }
+      }
+
+      MatchCallArgumentListener noOpListener;
+      auto matchCallResult =
+          matchCallArguments(args, params, paramInfo, None,
+                             /*allow fixes*/ false, noOpListener, None);
+
+      if (matchCallResult.hasValue())
+        return true;
+    }
+  }
+  return false;
+}
+
 PropertyWrapperInitializerInfo
 PropertyWrapperInitializerInfoRequest::evaluate(Evaluator &evaluator,
                                                 VarDecl *var) const {

@@ -6035,7 +6035,7 @@ public:
   ///
   /// Or when there is no initializer but each composed property wrapper has
   /// a suitable `init(wrappedValue:)`.
-  bool isPropertyMemberwiseInitializedWithWrappedType() const;
+  bool isPropertyMemberwiseInitializedWithWrappedType();
 
   /// Return the interface type of the value used for the 'wrappedValue:'
   /// parameter when initializing a property wrapper.
