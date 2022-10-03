@@ -5939,8 +5939,10 @@ public:
   /// Whether this property has any attached runtime metadata attributes.
   bool hasRuntimeMetadataAttributes() const;
 
-  /// Whether all of the attached property wrappers have an init(wrappedValue:)
-  /// initializer.
+  /// Whether all of the attached property wrappers have an \c
+  /// init(wrappedValue:) initializer or, if there are additional arguments in
+  /// the wrapper attribute, the \c wrappedValue has a base type for out-of-line
+  /// initialization.
   bool allAttachedPropertyWrappersHaveWrappedValueInit() const;
   
   /// Retrieve the type of the attached property wrapper as a contextual

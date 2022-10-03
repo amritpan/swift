@@ -58,6 +58,7 @@
 #include "swift/ClangImporter/ClangModule.h"
 #include "swift/Demangling/ManglingMacros.h"
 #include "swift/Parse/Lexer.h" // FIXME: Bad dependency
+#include "swift/Sema/ConstraintSystem.h"
 #include "clang/Lex/MacroInfo.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallPtrSet.h"
@@ -7401,15 +7402,58 @@ bool VarDecl::hasExternalPropertyWrapper() const {
   return wrapperInfo.projectedValueVar && wrapperInfo.hasProjectedValueInit;
 }
 
-/// Whether all of the attached property wrappers have an init(wrappedValue:)
-/// initializer.
 bool VarDecl::allAttachedPropertyWrappersHaveWrappedValueInit() const {
-  for (unsigned i : indices(getAttachedPropertyWrappers())) {
-    if (!getAttachedPropertyWrapperTypeInfo(i).wrappedValueInit)
+  auto attrs = getAttachedPropertyWrappers();
+  if (attrs.empty())
+    return false;
+
+  for (unsigned i : indices(attrs)) {
+    auto *attr = attrs[i];
+
+    if (!attr && getAttachedPropertyWrapperTypeInfo(i).wrappedValueInit)
+      continue;
+
+    if (!attr)
       return false;
+
+    ASTContext &ctx = this->getASTContext();
+    auto *dc = this->getDeclContext();
+    auto nominal = evaluateOrDefault(
+        ctx.evaluator, CustomAttrNominalRequest{attr, dc}, nullptr);
+    SmallVector<ValueDecl *, 2> inits;
+    nominal->lookupQualified(nominal, DeclNameRef::createConstructor(),
+                             NL_QualifiedDefault, inits);
+
+    for (auto *init : inits) {
+      using namespace constraints;
+      auto *fnType = init->getInterfaceType()->castTo<AnyFunctionType>();
+      auto convertedFnType = fnType->getResult()->castTo<AnyFunctionType>();
+      auto params = convertedFnType->getParams();
+      ParameterListInfo paramInfo(params, init, false);
+
+      SmallVector<AnyFunctionType::Param, 8> args;
+      auto placeholderType =
+          PlaceholderType::get(ctx, const_cast<VarDecl *>(this));
+      args.push_back(
+          AnyFunctionType::Param(placeholderType, ctx.Id_wrappedValue));
+
+      if (auto attrArgs = attr->getArgs()) {
+        for (auto attrArg : *attrArgs) {
+          auto argLabel = attrArg.getLabel();
+          args.push_back(AnyFunctionType::Param(placeholderType, argLabel));
+        }
+      }
+
+      MatchCallArgumentListener noOpListener;
+      auto matchCallResult =
+          matchCallArguments(args, params, paramInfo, None,
+                             /*allow fixes*/ false, noOpListener, None);
+
+      if (matchCallResult.hasValue())
+        return true;
+    }
   }
-  
-  return true;
+  return false;
 }
 
 PropertyWrapperTypeInfo
