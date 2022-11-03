@@ -592,7 +592,7 @@ PropertyWrapperBackingPropertyTypeRequest::evaluate(
   // property wrapper type.
   auto binding = var->getParentPatternBinding();
   unsigned index = binding ? binding->getPatternEntryIndexForVarDecl(var) : 0;
-  if (binding && binding->isInitialized(index)) {
+  if (binding && binding->isDirectlyInitialized(index)) {
     // FIXME(InterfaceTypeRequest): Remove this.
     (void)var->getInterfaceType();
     if (!binding->isInitializerChecked(index))

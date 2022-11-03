@@ -1862,6 +1862,12 @@ private:
   /// than implicitly-generated ones).
   bool isInitialized(bool onlyExplicit = false) const;
 
+  /// Whether the given pattern binding entry is directly initialized.
+  ///
+  /// \param onlyExplicit Only consider explicit initializations (rather
+  /// than implicitly-generated ones).
+  bool isDirectlyInitialized(bool onlyExplicit = false) const;
+
   Expr *getInit() const {
     if (PatternAndFlags.getInt().contains(Flags::Removed) ||
         InitContextAndFlags.getInt().contains(PatternFlags::IsText))
@@ -2100,6 +2106,11 @@ public:
   /// Whether the given pattern entry is initialized.
   bool isInitialized(unsigned i) const {
     return getPatternList()[i].isInitialized();
+  }
+
+  /// Whether the given pattern entry is directly initialized.
+  bool isDirectlyInitialized(unsigned i) const {
+    return getPatternList()[i].isDirectlyInitialized();
   }
 
   Expr *getInit(unsigned i) const {

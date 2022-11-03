@@ -2379,7 +2379,7 @@ public:
 
     // If the initializers in the PBD aren't checked yet, do so now.
     for (auto i : range(PBD->getNumPatternEntries())) {
-      if (!PBD->isInitialized(i))
+      if (!PBD->isDirectlyInitialized(i))
         continue;
 
       if (!PBD->isInitializerChecked(i)) {

@@ -1897,6 +1897,14 @@ bool PatternBindingEntry::isInitialized(bool onlyExplicit) const {
   return false;
 }
 
+bool PatternBindingEntry::isDirectlyInitialized(bool onlyExplicit) const {
+  // Directly initialized.
+  if (getInit() && (!onlyExplicit || getEqualLoc().isValid()))
+    return true;
+
+  return false;
+}
+
 void PatternBindingEntry::setInit(Expr *E) {
   auto F = PatternAndFlags.getInt();
   if (E) {
