@@ -28,6 +28,7 @@
 #include "swift/AST/DiagnosticsCommon.h"
 #include "swift/AST/DiagnosticsSIL.h"
 #include "swift/AST/GenericEnvironment.h"
+#include "swift/AST/NameLookupRequests.h"
 #include "swift/AST/PropertyWrappers.h"
 #include "swift/AST/TypeCheckRequests.h"
 #include "swift/SIL/InstructionUtils.h"
@@ -751,55 +752,74 @@ static void copyBorrowedYieldsIntoTemporary(SILGenFunction &SGF,
 }
 
 namespace {
-  class RefElementComponent : public PhysicalPathComponent {
-    VarDecl *Field;
-    SILType SubstFieldType;
-    bool IsNonAccessing;
-  public:
-    RefElementComponent(VarDecl *field, LValueOptions options,
-                        SILType substFieldType, LValueTypeData typeData,
-                        Optional<ActorIsolation> actorIso)
-      : PhysicalPathComponent(typeData, RefElementKind, actorIso),
-        Field(field), SubstFieldType(substFieldType),
+class NominalTypeElementComponent : public PhysicalPathComponent {
+protected:
+  VarDecl *Field;
+  SILType SubstFieldType;
+  SubstitutionMap Subs;
+
+public:
+  NominalTypeElementComponent(KindTy kind, VarDecl *field,
+                              LValueOptions options, SILType substFieldType,
+                              LValueTypeData typeData, SubstitutionMap subs,
+                              Optional<ActorIsolation> actorIso)
+      : PhysicalPathComponent(typeData, kind, actorIso), Field(field),
+        SubstFieldType(substFieldType), Subs(subs) {}
+
+  virtual bool isLoadingPure() const override = 0;
+
+  VarDecl *getField() const { return Field; }
+
+  virtual ManagedValue project(SILGenFunction &SGF, SILLocation loc,
+                               ManagedValue base) && override = 0;
+};
+
+class RefElementComponent : public NominalTypeElementComponent {
+  bool IsNonAccessing;
+
+public:
+  RefElementComponent(VarDecl *field, LValueOptions options,
+                      SILType substFieldType, LValueTypeData typeData,
+                      SubstitutionMap subs, Optional<ActorIsolation> actorIso)
+      : NominalTypeElementComponent(RefElementKind, field, options,
+                                    substFieldType, typeData, subs, actorIso),
         IsNonAccessing(options.IsNonAccessing) {}
 
-    virtual bool isLoadingPure() const override { return true; }
+  bool isLoadingPure() const override { return true; }
 
-    VarDecl *getField() const { return Field; }
+  ManagedValue project(SILGenFunction &SGF, SILLocation loc,
+                       ManagedValue base) &&
+      override {
+    assert(base.getType().hasReferenceSemantics() &&
+           "base for ref element component must be a reference type");
 
-    ManagedValue project(SILGenFunction &SGF, SILLocation loc,
-                         ManagedValue base) && override {
-      assert(base.getType().hasReferenceSemantics() &&
-             "base for ref element component must be a reference type");
+    // Borrow the ref element addr using formal access. If we need the ref
+    // element addr, we will load it in this expression.
+    if (base.getType().isAddress()) {
+      base = SGF.B.createFormalAccessLoadBorrow(loc, base);
+    } else {
+      base = base.formalAccessBorrow(SGF, loc);
+    }
+    SILValue result = SGF.B.createRefElementAddr(loc, base.getUnmanagedValue(),
+                                                 Field, SubstFieldType);
 
-      // Borrow the ref element addr using formal access. If we need the ref
-      // element addr, we will load it in this expression.
-      if (base.getType().isAddress()) {
-        base = SGF.B.createFormalAccessLoadBorrow(loc, base);
-      } else {
-        base = base.formalAccessBorrow(SGF, loc);
+    // Avoid emitting access markers completely for non-accesses or immutable
+    // declarations. Access marker verification is aware of these cases.
+    if (!IsNonAccessing && !Field->isLet()) {
+      if (auto enforcement = SGF.getDynamicEnforcement(Field)) {
+        result = enterAccessScope(SGF, loc, base, result, getTypeData(),
+                                  getAccessKind(), *enforcement,
+                                  takeActorIsolation());
       }
-      SILValue result =
-        SGF.B.createRefElementAddr(loc, base.getUnmanagedValue(),
-                                   Field, SubstFieldType);
-
-      // Avoid emitting access markers completely for non-accesses or immutable
-      // declarations. Access marker verification is aware of these cases.
-      if (!IsNonAccessing && !Field->isLet()) {
-        if (auto enforcement = SGF.getDynamicEnforcement(Field)) {
-          result = enterAccessScope(SGF, loc, base, result, getTypeData(),
-                                    getAccessKind(), *enforcement,
-                                    takeActorIsolation());
-        }
-      }
-
-      return ManagedValue::forLValue(result);
     }
 
-    void dump(raw_ostream &OS, unsigned indent) const override {
-      OS.indent(indent) << "RefElementComponent(" << Field->getName() << ")\n";
-    }
-  };
+    return ManagedValue::forLValue(result);
+  }
+
+  void dump(raw_ostream &OS, unsigned indent) const override {
+    OS.indent(indent) << "RefElementComponent(" << Field->getName() << ")\n";
+  }
+};
 
   class TupleElementComponent : public PhysicalPathComponent {
     unsigned ElementIndex;
@@ -830,17 +850,16 @@ namespace {
     }
   };
 
-  class StructElementComponent : public PhysicalPathComponent {
-    VarDecl *Field;
-    SILType SubstFieldType;
+  class StructElementComponent : public NominalTypeElementComponent {
   public:
     StructElementComponent(VarDecl *field, SILType substFieldType,
-                           LValueTypeData typeData,
+                           LValueTypeData typeData, SubstitutionMap subs,
                            Optional<ActorIsolation> actorIso)
-      : PhysicalPathComponent(typeData, StructElementKind, actorIso),
-        Field(field), SubstFieldType(substFieldType) {}
+        : NominalTypeElementComponent(StructElementKind, field, LValueOptions(),
+                                      substFieldType, typeData, subs,
+                                      actorIso) {}
 
-    virtual bool isLoadingPure() const override { return true; }
+    bool isLoadingPure() const override { return true; }
 
     ManagedValue project(SILGenFunction &SGF, SILLocation loc,
                          ManagedValue base) && override {
@@ -1707,11 +1726,13 @@ namespace {
                 SGF.maybeEmitValueOfLocalVarDecl(backingVar, AccessKind::Write);
           } else if (BaseFormalType->mayHaveSuperclass()) {
             RefElementComponent REC(backingVar, LValueOptions(), varStorageType,
-                                    typeData, /*actorIsolation=*/None);
+                                    typeData, Substitutions,
+                                    /*actorIsolation=*/None);
             proj = std::move(REC).project(SGF, loc, base);
           } else {
             assert(BaseFormalType->getStructOrBoundGenericStruct());
             StructElementComponent SEC(backingVar, varStorageType, typeData,
+                                       Substitutions,
                                        /*actorIsolation=*/None);
             proj = std::move(SEC).project(SGF, loc, base);
           }
@@ -3567,11 +3588,11 @@ void LValue::addMemberVarComponent(SILGenFunction &SGF, SILLocation loc,
           SGF.getTypeExpansionContext(), Storage, FormalRValueType);
 
       if (BaseFormalType->mayHaveSuperclass()) {
-        LV.add<RefElementComponent>(Storage, Options, varStorageType,
-                                    typeData, ActorIso);
+        LV.add<RefElementComponent>(Storage, Options, varStorageType, typeData,
+                                    Subs, ActorIso);
       } else {
         assert(BaseFormalType->getStructOrBoundGenericStruct());
-        LV.add<StructElementComponent>(Storage, varStorageType, typeData,
+        LV.add<StructElementComponent>(Storage, varStorageType, typeData, Subs,
                                        ActorIso);
       }
 

@@ -226,8 +226,8 @@ public:
     return current;
   }
 
-  void set(SILGenFunction &SGF, SILLocation loc,
-           ArgumentSource &&value, ManagedValue base) &&;
+  virtual void set(SILGenFunction &SGF, SILLocation loc, ArgumentSource &&value,
+                   ManagedValue base) &&;
 
   /// Determines whether this component has any actor-isolation.
   bool hasActorIsolation() const { return ActorIso.hasValue(); }
