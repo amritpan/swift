@@ -180,6 +180,20 @@ func key_path_root_mismatch<T>(_ base: KeyPathBase?, subBase: KeyPathBaseSubtype
 
 }
 
+func key_path_value_mismatch() {
+	struct S {
+		var member: Int
+	}
+	
+	func test(_: KeyPath<S, String>) {}
+	// expected-note@-1 {{found candidate with type 'KeyPath<S, Int>'}}
+	func test(_: KeyPath<S, Float>) {}
+	// expected-note@-1 {{found candidate with type 'KeyPath<S, Int>'}}
+	
+	test(\.member)
+	// expected-error@-1 {{no exact matches in call to local function 'test'}}
+}
+
 // https://github.com/apple/swift/issues/55884
 func f_55884() {
   func f<T>(_ x: KeyPath<String?, T>) -> T { "1"[keyPath: x] }
