@@ -137,7 +137,7 @@ func test_mismatch_with_contextual_optional_result() {
   }
 
   let _ = A(B(), keyPath: \.arr) // expected-error {{cannot convert value of type 'KeyPath<B, [Int]>' to expected argument type 'KeyPath<B, [Int]?>'}}
-	// expected-note@-1 {{arguments to generic parameter 'Value' ('[Int]' and '[Int]?') are expected to be equal}}
+  // expected-note@-1 {{arguments to generic parameter 'Value' ('[Int]' and '[Int]?') are expected to be equal}}
 }
 
 // https://github.com/apple/swift/issues/53581
@@ -181,17 +181,17 @@ func key_path_root_mismatch<T>(_ base: KeyPathBase?, subBase: KeyPathBaseSubtype
 }
 
 func key_path_value_mismatch() {
-	struct S {
-		var member: Int
-	}
+  struct S {
+    var member: Int
+  }
 	
-	func test(_: KeyPath<S, String>) {}
-	// expected-note@-1 {{found candidate with type 'KeyPath<S, Int>'}}
-	func test(_: KeyPath<S, Float>) {}
-	// expected-note@-1 {{found candidate with type 'KeyPath<S, Int>'}}
+  func test(_: KeyPath<S, String>) {}
+  // expected-note@-1 {{found candidate with type 'KeyPath<S, Int>'}}
+  func test(_: KeyPath<S, Float>) {}
+  // expected-note@-1 {{found candidate with type 'KeyPath<S, Int>'}}
 	
-	test(\.member)
-	// expected-error@-1 {{no exact matches in call to local function 'test'}}
+  test(\.member)
+  // expected-error@-1 {{no exact matches in call to local function 'test'}}
 }
 
 // https://github.com/apple/swift/issues/55884
