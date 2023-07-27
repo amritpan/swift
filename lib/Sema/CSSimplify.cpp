@@ -11550,14 +11550,17 @@ bool ConstraintSystem::resolveClosure(TypeVariableType *typeVar,
 bool ConstraintSystem::resolveKeyPath(TypeVariableType *typeVar,
                                       Type contextualType,
                                       ConstraintLocatorBuilder locator) {
-
+  auto *keyPathLocator = typeVar->getImpl().getLocator();
+  auto *keyPath = castToExpr<KeyPathExpr>(keyPathLocator->getAnchor());
+  if (keyPath->hasSingleInvalidComponent()) {
+    assignFixedType(typeVar, contextualType);
+    return true;
+  }
   if (auto *BGT = contextualType->getAs<BoundGenericType>()) {
     auto args = BGT->getGenericArgs();
     if (isKnownKeyPathType(contextualType) && args.size() >= 1) {
       auto root = BGT->getGenericArgs()[0];
 
-      auto *keyPathLocator = typeVar->getImpl().getLocator();
-      auto *keyPath = castToExpr<KeyPathExpr>(keyPathLocator->getAnchor());
       auto *keyPathValueTV = getKeyPathValueType(keyPath);
       contextualType = BoundGenericType::get(
           args.size() == 1 ? getASTContext().getKeyPathDecl() : BGT->getDecl(),
@@ -12110,11 +12113,11 @@ ConstraintSystem::simplifyKeyPathConstraint(
 
     // If we have a malformed KeyPathExpr e.g. let _: KeyPath<A, C> = \A
     // let's record a AllowKeyPathMissingComponent fix.
-//    if (keyPath->hasSingleInvalidComponent()) {
-//      auto *fix = AllowKeyPathWithoutComponents::create(
-//          *this, getConstraintLocator(locator));
-//      return recordFix(fix) ? SolutionKind::Error : SolutionKind::Solved;
-//    }
+    if (keyPath->hasSingleInvalidComponent()) {
+      auto *fix = AllowKeyPathWithoutComponents::create(
+          *this, getConstraintLocator(locator));
+      return recordFix(fix) ? SolutionKind::Error : SolutionKind::Solved;
+    }
 
     // If the root type has been bound to a hole, we cannot infer it.
     if (getFixedTypeRecursive(rootTy, /*wantRValue*/ true)->isPlaceholder())
