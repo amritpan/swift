@@ -3679,7 +3679,7 @@ namespace {
       CS.recordKeyPath(E, root, value, CurDC);
 
       auto typeLoc =
-          CS.getConstraintLocator(locator, LocatorPathElt::KeyPathType(value));
+          CS.getConstraintLocator(locator, LocatorPathElt::KeyPathType());
       Type kpTy = CS.createTypeVariable(typeLoc, TVO_CanBindToNoEscape |
                                                      TVO_CanBindToHole);
 
