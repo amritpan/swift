@@ -4024,6 +4024,14 @@ namespace {
           auto &cs = CG.getConstraintSystem();
           (void)TypeChecker::checkObjCKeyPathExpr(cs.DC, keyPath);
         }
+        
+        auto &CS = CG.getConstraintSystem();
+        auto kpType = CG.visitKeyPathExpr(keyPath);
+        if (!kpType)
+          return Action::Stop();
+
+        CS.setType(expr, kpType);
+        return Action::SkipChildren(expr);
       }
 
       // Generate constraints for each of the entries in the capture list.
@@ -4144,22 +4152,30 @@ bool ConstraintSystem::resolveKeyPath(TypeVariableType *typeVar,
     assignFixedType(typeVar, contextualType);
     return true;
   }
+  
+  if (hasType(keyPath, 0)) {
+    assignFixedType(typeVar, contextualType);
+    return true;
+  }
+  
   auto *BGT = contextualType->castTo<BoundGenericType>();
   auto *root = getKeyPathRootType(keyPath);
   auto *value = getKeyPathValueType(keyPath);
   auto *dc = getKeyPathDC(keyPath);
+  Type contextualRoot;
 
-  {
+  if (isKnownKeyPathType(BGT)) {
     auto args = BGT->getGenericArgs();
-    assert(isKnownKeyPathType(BGT) && args.size() == 2);
+    assert(args.size() == 2);
 
-    auto contextualRoot = args[0];
+    contextualRoot = args[0];
     contextualType =
         BoundGenericType::get(BGT->getDecl(),
                               /*parent=*/Type(), {contextualRoot, value});
   }
-
-  assignFixedType(typeVar, contextualType);
+  
+  if (contextualRoot && !contextualRoot->isTypeVariableOrMember())
+    assignFixedType(typeVar, contextualType);
 
   // If a root type was explicitly given, then resolve it now.
   ConstraintGenerator CG(*this, dc);
@@ -4225,6 +4241,8 @@ bool ConstraintSystem::resolveKeyPath(TypeVariableType *typeVar,
     // re-type-check the constraints during failure diagnosis.
     case KeyPathExpr::Component::Kind::Subscript: {
       auto *args = component.getSubscriptArgs();
+      ConstraintWalker walker(CG);
+      args->walk(walker);
       componentTy =
           CG.addSubscriptConstraints(keyPath, componentTy, /*decl*/ nullptr,
                                      args, memberLocator, &componentTypeVars);
