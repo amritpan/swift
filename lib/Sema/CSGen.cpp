@@ -4158,24 +4158,26 @@ bool ConstraintSystem::resolveKeyPath(TypeVariableType *typeVar,
     return true;
   }
   
-  auto *BGT = contextualType->castTo<BoundGenericType>();
   auto *root = getKeyPathRootType(keyPath);
   auto *value = getKeyPathValueType(keyPath);
   auto *dc = getKeyPathDC(keyPath);
-  Type contextualRoot;
 
-  if (isKnownKeyPathType(BGT)) {
+  if (isKnownKeyPathType(contextualType)) {
+    auto BGT = contextualType->castTo<BoundGenericType>();
     auto args = BGT->getGenericArgs();
     assert(args.size() == 2);
 
-    contextualRoot = args[0];
+    auto contextualRoot = args[0];
     contextualType =
         BoundGenericType::get(BGT->getDecl(),
                               /*parent=*/Type(), {contextualRoot, value});
-  }
-  
-  if (contextualRoot && !contextualRoot->isTypeVariableOrMember())
+    
+    // 
+    if (contextualRoot && !contextualRoot->isTypeVariableOrMember())
+      assignFixedType(typeVar, contextualType);
+  } else {
     assignFixedType(typeVar, contextualType);
+  }
 
   // If a root type was explicitly given, then resolve it now.
   ConstraintGenerator CG(*this, dc);
