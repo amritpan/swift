@@ -5717,6 +5717,8 @@ public:
       UnresolvedProperty,
       UnresolvedSubscript,
       Property,
+      Method,
+      Apply,
       Subscript,
       OptionalForce,
       OptionalChain,
@@ -5737,6 +5739,7 @@ public:
       DeclNameOrRef(ConcreteDeclRef rd) : ResolvedDecl(rd) {}
     } Decl;
 
+    ApplyExpr *ComponentApplyExpr;
     ArgumentList *SubscriptArgList;
     const ProtocolConformanceRef *SubscriptHashableConformancesData;
 
@@ -5750,13 +5753,18 @@ public:
                        ArrayRef<ProtocolConformanceRef> indexHashables,
                        Kind kind, Type type, SourceLoc loc);
 
-    // Private constructor for property or #keyPath dictionary key.
+    // Private constructor for property, method or #keyPath dictionary key.
     explicit Component(DeclNameOrRef decl, Kind kind, Type type, SourceLoc loc)
         : Component(kind, type, loc) {
-      assert(kind == Kind::Property || kind == Kind::UnresolvedProperty ||
+      assert(kind == Kind::Property || kind == Kind::UnresolvedProperty || kind == Kind::Method ||
              kind == Kind::DictionaryKey);
       Decl = decl;
     }
+    
+    // Private constructor for apply element kind.
+    explicit Component(ApplyExpr *expr, ArgumentList *argList, SourceLoc loc)
+        : ComponentApplyExpr(expr), SubscriptArgList(argList),
+          KindValue(Kind::Apply), Loc(loc) {}
 
     // Private constructor for tuple element kind.
     explicit Component(unsigned tupleIndex, Type elementType, SourceLoc loc)
@@ -5791,6 +5799,17 @@ public:
       return Component(Kind::OptionalChain, Type(), QuestionLoc);
     }
     
+    /// Create a component for a method.
+    static Component forMethod(ConcreteDeclRef method, Type methodType, SourceLoc loc) {
+      return Component(method, Kind::Method, methodType, loc);
+    }
+    
+    /// Create a component for applied component.
+    static Component forApply(ApplyExpr *expr, ArgumentList *argList,
+                              SourceLoc loc) {
+      return Component(expr, argList, loc);
+    }
+
     /// Create a component for a property.
     static Component forProperty(ConcreteDeclRef property,
                                  Type propertyType,
@@ -5872,6 +5891,8 @@ public:
       case Kind::OptionalWrap:
       case Kind::OptionalForce:
       case Kind::Property:
+      case Kind::Method:
+      case Kind::Apply:
       case Kind::Identity:
       case Kind::TupleElement:
       case Kind::DictionaryKey:
@@ -5902,6 +5923,8 @@ public:
       case Kind::TupleElement:
       case Kind::DictionaryKey:
       case Kind::CodeCompletion:
+      case Kind::Method:
+      case Kind::Apply:
         return nullptr;
       }
       llvm_unreachable("unhandled kind");
@@ -5915,6 +5938,7 @@ public:
     ArrayRef<ProtocolConformanceRef>
     getSubscriptIndexHashableConformances() const {
       switch (getKind()) {
+      case Kind::Apply:
       case Kind::Subscript:
         if (!SubscriptHashableConformancesData)
           return {};
@@ -5927,6 +5951,7 @@ public:
       case Kind::OptionalForce:
       case Kind::UnresolvedProperty:
       case Kind::Property:
+      case Kind::Method:
       case Kind::Identity:
       case Kind::TupleElement:
       case Kind::DictionaryKey:
@@ -5938,6 +5963,7 @@ public:
 
     DeclNameRef getUnresolvedDeclName() const {
       switch (getKind()) {
+      case Kind::Apply:
       case Kind::UnresolvedProperty:
       case Kind::DictionaryKey:
         return Decl.UnresolvedName;
@@ -5949,6 +5975,7 @@ public:
       case Kind::OptionalWrap:
       case Kind::OptionalForce:
       case Kind::Property:
+      case Kind::Method:
       case Kind::Identity:
       case Kind::TupleElement:
       case Kind::CodeCompletion:
@@ -5961,6 +5988,7 @@ public:
       switch (getKind()) {
       case Kind::Property:
       case Kind::Subscript:
+      case Kind::Method:
         return true;
 
       case Kind::Invalid:
@@ -5973,6 +6001,7 @@ public:
       case Kind::TupleElement:
       case Kind::DictionaryKey:
       case Kind::CodeCompletion:
+      case Kind::Apply:
         return false;
       }
       llvm_unreachable("unhandled kind");
@@ -5982,6 +6011,7 @@ public:
       switch (getKind()) {
       case Kind::Property:
       case Kind::Subscript:
+      case Kind::Method:
         return Decl.ResolvedDecl;
 
       case Kind::Invalid:
@@ -5994,6 +6024,7 @@ public:
       case Kind::TupleElement:
       case Kind::DictionaryKey:
       case Kind::CodeCompletion:
+      case Kind::Apply:
         llvm_unreachable("no decl ref for this kind");
       }
       llvm_unreachable("unhandled kind");
@@ -6013,9 +6044,34 @@ public:
         case Kind::Identity:
         case Kind::Property:
         case Kind::Subscript:
+        case Kind::Method:
+        case Kind::Apply:
         case Kind::DictionaryKey:
         case Kind::CodeCompletion:
           llvm_unreachable("no field number for this kind");
+      }
+      llvm_unreachable("unhandled kind");
+    }
+
+    ApplyExpr *getApplyExpr() const {
+      switch (getKind()) {
+      case Kind::Apply:
+        return ComponentApplyExpr;
+
+      case Kind::Property:
+      case Kind::Subscript:
+      case Kind::Method:
+      case Kind::Invalid:
+      case Kind::UnresolvedProperty:
+      case Kind::UnresolvedSubscript:
+      case Kind::OptionalChain:
+      case Kind::OptionalWrap:
+      case Kind::OptionalForce:
+      case Kind::Identity:
+      case Kind::TupleElement:
+      case Kind::DictionaryKey:
+      case Kind::CodeCompletion:
+        llvm_unreachable("no apply expr for this kind");
       }
       llvm_unreachable("unhandled kind");
     }
