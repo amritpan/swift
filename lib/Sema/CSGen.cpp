@@ -3875,6 +3875,15 @@ namespace {
         case KeyPathExpr::Component::Kind::DictionaryKey:
           llvm_unreachable("DictionaryKey only valid in #keyPath");
           break;
+        case KeyPathExpr::Component::Kind::Apply:
+          // tv result type
+
+          // ApplyFunction r: base l: resultTy () -> fun
+          auto applyExpr = component.getApplyExpr();
+          base = visitApplyExpr(applyExpr) break;
+        case KeyPathExpr::Component::Kind::Method:
+
+          break;
         }
 
         // By now, `base` is the result type of this component. Set it in the
