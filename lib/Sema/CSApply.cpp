@@ -312,6 +312,7 @@ static bool buildObjCKeyPathString(KeyPathExpr *E,
       // the only component, in which case we use @"self").
       continue;
 
+    case KeyPathExpr::Component::Kind::Method:
     case KeyPathExpr::Component::Kind::Property: {
       // Property references must be to @objc properties.
       // TODO: If we added special properties matching KVC operators like '@sum',
@@ -342,6 +343,8 @@ static bool buildObjCKeyPathString(KeyPathExpr *E,
       return false;
     case KeyPathExpr::Component::Kind::DictionaryKey:
       llvm_unreachable("DictionaryKey only valid in #keyPath expressions.");
+      return false;
+    case KeyPathExpr::Component::Kind::Apply:
       return false;
     }
   }
@@ -5193,6 +5196,8 @@ namespace {
           break;
         }
         case KeyPathExpr::Component::Kind::Property:
+        case KeyPathExpr::Component::Kind::Method:
+        case KeyPathExpr::Component::Kind::Apply:
         case KeyPathExpr::Component::Kind::Subscript:
         case KeyPathExpr::Component::Kind::OptionalWrap:
         case KeyPathExpr::Component::Kind::TupleElement:
