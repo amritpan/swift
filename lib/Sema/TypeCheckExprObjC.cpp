@@ -203,6 +203,8 @@ std::optional<Type> TypeChecker::checkObjCKeyPathExpr(DeclContext *dc,
     // ObjC keypaths only support named segments.
     // TODO: Perhaps we can map subscript components to dictionary keys.
     switch (auto kind = component.getKind()) {
+    case KeyPathExpr::Component::Kind::Method:
+    case KeyPathExpr::Component::Kind::Apply:
     case KeyPathExpr::Component::Kind::Invalid:
     case KeyPathExpr::Component::Kind::Identity:
     case KeyPathExpr::Component::Kind::CodeCompletion:
