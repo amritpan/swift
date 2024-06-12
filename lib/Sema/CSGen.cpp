@@ -3320,22 +3320,32 @@ namespace {
       SmallVector<AnyFunctionType::Param, 8> params;
       getMatchingParams(expr->getArgs(), params);
       
-      auto locator = CS.getConstraintLocator(expr);
-      auto memberLocator =
-        CS.getConstraintLocator(locator,
-                                ConstraintLocator::UnresolvedMember);
       
-      auto memberTy = CS.createTypeVariable(
-          memberLocator, TVO_CanBindToLValue | TVO_CanBindToNoEscape);
-      
-//      if (CS.hasType(fnExpr))
-//        memberTy = CS.getType(fnExpr);
-
-      CS.addConstraint(ConstraintKind::ApplicableFunction,
-                       FunctionType::get(params, resultType, extInfo),
-                       memberTy,
-        CS.getConstraintLocator(expr, ConstraintLocator::ApplyFunction));
-
+      // If member has a type, use it directly.
+      // Otherwise, assign new type var to be solved.
+      if (CS.hasType(fnExpr)) {
+        auto memberTy = CS.getType(fnExpr);
+        
+        CS.addConstraint(ConstraintKind::ApplicableFunction,
+                         FunctionType::get(params, resultType, extInfo),
+                         memberTy,
+          CS.getConstraintLocator(expr, ConstraintLocator::ApplyFunction));
+        
+      } else {
+        auto locator = CS.getConstraintLocator(expr);
+        auto memberLocator =
+          CS.getConstraintLocator(locator,
+                                  ConstraintLocator::UnresolvedMember);
+        
+        auto memberTV = CS.createTypeVariable(
+            memberLocator, TVO_CanBindToLValue | TVO_CanBindToNoEscape);
+        
+        CS.addConstraint(ConstraintKind::ApplicableFunction,
+                         FunctionType::get(params, resultType, extInfo),
+                         memberTV,
+          CS.getConstraintLocator(expr, ConstraintLocator::ApplyFunction));
+      }
+        
       // If we ended up resolving the result type variable to a concrete type,
       // set it as the favored type for this expression.
       Type fixedType =
@@ -3790,7 +3800,32 @@ namespace {
               resultLocator,
               TVO_CanBindToLValue | TVO_CanBindToNoEscape | TVO_CanBindToHole);
           break;
-        case KeyPathExpr::Component::Kind::UnresolvedMember:
+          case KeyPathExpr::Component::Kind::UnresolvedMember: {
+            auto memberTy = CS.createTypeVariable(resultLocator,
+                                                  TVO_CanBindToLValue |
+                                                  TVO_CanBindToNoEscape);
+            componentTypeVars.push_back(memberTy);
+            auto lookupName =
+                kind == KeyPathExpr::Component::Kind::UnresolvedMember
+                    ? DeclNameRef(
+                          component.getUnresolvedDeclName()) // FIXME: type change
+                                                             // needed
+                    : component.getDeclRef().getDecl()->createNameRef();
+
+            // need to fix this. How to look up refkind?
+//            auto refKind = lookupName.isSimpleName()
+//              ? FunctionRefKind::SingleApply
+//              : FunctionRefKind::Compound;
+            CS.addValueMemberConstraint(base, lookupName,
+                                        memberTy,
+                                        CurDC,
+                                        FunctionRefKind::Unapplied,
+                                        /*outerAlternatives=*/{},
+                                        memberLocator);
+            base = memberTy;
+            break;
+            
+          }
         // This should only appear in resolved ASTs, but we may need to
         // re-type-check the constraints during failure diagnosis.
         case KeyPathExpr::Component::Kind::Property: {
@@ -3805,9 +3840,8 @@ namespace {
                                                            // needed
                   : component.getDeclRef().getDecl()->createNameRef();
 
-          // need to fix this. Only manually changed Unapplied to SingleApply
           auto refKind = lookupName.isSimpleName()
-            ? FunctionRefKind::SingleApply
+            ? FunctionRefKind::Unapplied
             : FunctionRefKind::Compound;
           CS.addValueMemberConstraint(base, lookupName,
                                       memberTy,
@@ -3895,7 +3929,6 @@ namespace {
 
           // ApplyFunction r: base l: resultTy () -> fun
           auto applyExpr = component.getApplyExpr();
-          
           base = visitApplyExpr(applyExpr);
           break;
         }
