@@ -3319,10 +3319,21 @@ namespace {
 
       SmallVector<AnyFunctionType::Param, 8> params;
       getMatchingParams(expr->getArgs(), params);
+      
+      auto locator = CS.getConstraintLocator(expr);
+      auto memberLocator =
+        CS.getConstraintLocator(locator,
+                                ConstraintLocator::UnresolvedMember);
+      
+      auto memberTy = CS.createTypeVariable(
+          memberLocator, TVO_CanBindToLValue | TVO_CanBindToNoEscape);
+      
+//      if (CS.hasType(fnExpr))
+//        memberTy = CS.getType(fnExpr);
 
       CS.addConstraint(ConstraintKind::ApplicableFunction,
                        FunctionType::get(params, resultType, extInfo),
-                       CS.getType(fnExpr),
+                       memberTy,
         CS.getConstraintLocator(expr, ConstraintLocator::ApplyFunction));
 
       // If we ended up resolving the result type variable to a concrete type,
@@ -3794,8 +3805,9 @@ namespace {
                                                            // needed
                   : component.getDeclRef().getDecl()->createNameRef();
 
+          // need to fix this. Only manually changed Unapplied to SingleApply
           auto refKind = lookupName.isSimpleName()
-            ? FunctionRefKind::Unapplied
+            ? FunctionRefKind::SingleApply
             : FunctionRefKind::Compound;
           CS.addValueMemberConstraint(base, lookupName,
                                       memberTy,
@@ -3878,14 +3890,16 @@ namespace {
         case KeyPathExpr::Component::Kind::DictionaryKey:
           llvm_unreachable("DictionaryKey only valid in #keyPath");
           break;
-        case KeyPathExpr::Component::Kind::Apply:
+        case KeyPathExpr::Component::Kind::Apply: {
           // tv result type
 
           // ApplyFunction r: base l: resultTy () -> fun
           auto applyExpr = component.getApplyExpr();
-          base = visitApplyExpr(applyExpr) break;
+          
+          base = visitApplyExpr(applyExpr);
+          break;
+        }
         case KeyPathExpr::Component::Kind::Method:
-
           break;
         }
 

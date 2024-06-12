@@ -312,7 +312,17 @@ static bool buildObjCKeyPathString(KeyPathExpr *E,
       // the only component, in which case we use @"self").
       continue;
 
-    case KeyPathExpr::Component::Kind::Method:
+      case KeyPathExpr::Component::Kind::Method: {
+        auto property = cast<FuncDecl>(component.getDeclRef().getDecl());
+        if (!property->isObjC())
+          return false;
+        if (!buf.empty()) {
+          buf.push_back('.');
+        }
+//        auto objcName = property->getObjCPropertyName().str();
+//        buf.append(objcName.begin(), objcName.end());
+        continue;
+      }
     case KeyPathExpr::Component::Kind::Property: {
       // Property references must be to @objc properties.
       // TODO: If we added special properties matching KVC operators like '@sum',
@@ -5368,19 +5378,26 @@ namespace {
         ConstraintLocator *locator,
         SmallVectorImpl<KeyPathExpr::Component> &components) {
       auto resolvedTy = simplifyType(overload.adjustedOpenedType);
-      if (auto *property = overload.choice.getDeclOrNull()) {
-        // Key paths can only refer to properties currently.
-        auto varDecl = cast<VarDecl>(property);
-        // Key paths don't work with mutating-get properties.
-        assert(!varDecl->isGetterMutating());
-        // Key paths don't currently support static members.
-        // There is a fix which diagnoses such situation already.
-        assert(!varDecl->isStatic());
-
-        // Compute the concrete reference to the member.
-        auto ref = resolveConcreteDeclRef(property, locator);
-        components.push_back(
-            KeyPathExpr::Component::forProperty(ref, resolvedTy, componentLoc));
+      if (auto *member = overload.choice.getDeclOrNull()) {
+        if (auto varDecl = dyn_cast<VarDecl>(member)) {
+          // Key paths don't work with mutating-get properties.
+          assert(!varDecl->isGetterMutating());
+          // Key paths don't currently support static members.
+          // There is a fix which diagnoses such situation already.
+          assert(!varDecl->isStatic());
+          
+          // Compute the concrete reference to the member.
+          auto ref = resolveConcreteDeclRef(varDecl, locator);
+          components.push_back(
+              KeyPathExpr::Component::forProperty(ref, resolvedTy, componentLoc));
+        } else if (auto fnDecl = cast<FuncDecl>(member)) {
+          // Compute the concrete reference to the member.
+          auto ref = resolveConcreteDeclRef(fnDecl, locator);
+          components.push_back(
+              KeyPathExpr::Component::forMethod(ref, resolvedTy, componentLoc));
+        }
+        
+        
       } else {
         auto fieldIndex = overload.choice.getTupleIndex();
         components.push_back(KeyPathExpr::Component::forTupleElement(
