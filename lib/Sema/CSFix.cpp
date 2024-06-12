@@ -1220,12 +1220,6 @@ bool AllowInvalidRefInKeyPath::diagnose(const Solution &solution,
                                                      getLocator());
     return failure.diagnose(asNote);
   }
-
-  case RefKind::Method:
-  case RefKind::Initializer: {
-    InvalidMethodRefInKeyPath failure(solution, Member, getLocator());
-    return failure.diagnose(asNote);
-  }
   }
   llvm_unreachable("covered switch");
 }
@@ -1256,22 +1250,11 @@ bool AllowInvalidRefInKeyPath::isEqual(const ConstraintFix *other) const {
 AllowInvalidRefInKeyPath *
 AllowInvalidRefInKeyPath::forRef(ConstraintSystem &cs, ValueDecl *member,
                                  ConstraintLocator *locator) {
-  // Referencing (instance or static) methods in key path is
-  // not currently allowed.
-  if (isa<FuncDecl>(member))
-    return AllowInvalidRefInKeyPath::create(cs, RefKind::Method, member,
-                                            locator);
-
   // Referencing enum cases in key path is not currently allowed.
   if (isa<EnumElementDecl>(member)) {
     return AllowInvalidRefInKeyPath::create(cs, RefKind::EnumCase, member,
                                             locator);
   }
-
-  // Referencing initializers in key path is not currently allowed.
-  if (isa<ConstructorDecl>(member))
-    return AllowInvalidRefInKeyPath::create(cs, RefKind::Initializer,
-                                            member, locator);
 
   // Referencing static members in key path is not currently allowed.
   if (member->isStatic())
