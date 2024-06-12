@@ -655,6 +655,8 @@ ConstraintLocator *ConstraintSystem::getCalleeLocator(
     case ComponentKind::Identity:
     case ComponentKind::DictionaryKey:
     case ComponentKind::CodeCompletion:
+    case ComponentKind::Method:
+    case ComponentKind::Apply:
       // These components don't have any callee associated, so just continue.
       break;
     }
@@ -7928,6 +7930,12 @@ ConstraintSystem::inferKeyPathLiteralCapability(KeyPathExpr *keyPath) {
 
     case KeyPathExpr::Component::Kind::DictionaryKey:
       llvm_unreachable("DictionaryKey only valid in #keyPath");
+      break;
+    case KeyPathExpr::Component::Kind::Method:
+
+      break;
+    case KeyPathExpr::Component::Kind::Apply:
+
       break;
     }
   }
