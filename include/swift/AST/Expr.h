@@ -5714,12 +5714,12 @@ public:
   public:
     enum class Kind : unsigned {
       Invalid,
-      UnresolvedMember,
-      UnresolvedSubscript,
-      Property,
-      Method,
-      Apply,
-      Subscript,
+      UnresolvedMember, // should handle subscripts
+      UnresolvedSubscript, //
+      Property, //member
+      Method, // member
+      Apply, // + unresolvedapply
+      Subscript, // member
       OptionalForce,
       OptionalChain,
       OptionalWrap,
@@ -5727,6 +5727,7 @@ public:
       TupleElement,
       DictionaryKey,
       CodeCompletion,
+      //reference + application
     };
 
   private:
@@ -5790,9 +5791,9 @@ public:
     /// Create an unresolved component for a member. Needs functionrefkind
     /// Needs functionrefkind/unresolveddotexpr
     static Component forUnresolvedMember(DeclNameRef UnresolvedName,
-                                         FunctionRefKind FuncRefKind,
-                                         SourceLoc Loc) {
-      return Component(UnresolvedName, FuncRefKind, Loc);
+                                         FunctionRefKind funcRefKind,
+                                         SourceLoc loc) {
+      return Component(UnresolvedName, funcRefKind, loc);
     }
 
     /// Create an unresolved component for a subscript.
@@ -6083,6 +6084,29 @@ public:
       case Kind::DictionaryKey:
       case Kind::CodeCompletion:
         llvm_unreachable("no apply expr for this kind");
+      }
+      llvm_unreachable("unhandled kind");
+    }
+    
+    FunctionRefKind getFunctionRefKind() const {
+      switch (getKind()) {
+      case Kind::UnresolvedMember:
+        return ComponentFuncRefKind;
+
+      case Kind::Property:
+      case Kind::Subscript:
+      case Kind::Method:
+      case Kind::Invalid:
+      case Kind::UnresolvedSubscript:
+      case Kind::OptionalChain:
+      case Kind::OptionalWrap:
+      case Kind::OptionalForce:
+      case Kind::Identity:
+      case Kind::TupleElement:
+      case Kind::DictionaryKey:
+      case Kind::CodeCompletion:
+      case Kind::Apply:
+        llvm_unreachable("no function ref kind for this kind");
       }
       llvm_unreachable("unhandled kind");
     }
