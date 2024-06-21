@@ -818,7 +818,7 @@ ParserResult<Expr> Parser::parseExprKeyPathObjC() {
 
     // Record the name we parsed.
     auto component = KeyPathExpr::Component::forUnresolvedMember(
-        name, nameLoc.getBaseNameLoc());
+        name, FunctionRefKind::Unapplied, nameLoc.getBaseNameLoc());
     components.push_back(component);
 
     // After the first component, we can start parsing keywords.
