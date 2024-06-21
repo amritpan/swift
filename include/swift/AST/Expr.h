@@ -5741,9 +5741,9 @@ public:
   /// - a code completion token
   class Component {
   public:
-    enum class Kind: unsigned {
+    enum class Kind : unsigned {
       Invalid,
-      UnresolvedProperty,
+      UnresolvedMember,
       UnresolvedSubscript,
       Property,
       Subscript,
@@ -5755,7 +5755,7 @@ public:
       DictionaryKey,
       CodeCompletion,
     };
-  
+
   private:
     union DeclNameOrRef {
       DeclNameRef UnresolvedName;
@@ -5779,12 +5779,12 @@ public:
                        ArrayRef<ProtocolConformanceRef> indexHashables,
                        Kind kind, Type type, SourceLoc loc);
 
-    // Private constructor for property or #keyPath dictionary key.
+    // Private constructor for unresolved member, property or #keyPath
+    // dictionary key.
     explicit Component(DeclNameOrRef decl, Kind kind, Type type, SourceLoc loc)
-        : Component(kind, type, loc) {
-      assert(kind == Kind::Property || kind == Kind::UnresolvedProperty ||
+        : Decl(decl), KindValue(kind), ComponentType(type), Loc(loc) {
+      assert(kind == Kind::Property || kind == Kind::UnresolvedMember ||
              kind == Kind::DictionaryKey);
-      Decl = decl;
     }
 
     // Private constructor for tuple element kind.
@@ -5801,11 +5801,11 @@ public:
     Component() : Component(Kind::Invalid, Type(), SourceLoc()) {}
 
     /// Create an unresolved component for a property.
-    static Component forUnresolvedProperty(DeclNameRef UnresolvedName,
-                                           SourceLoc Loc) {
-      return Component(UnresolvedName, Kind::UnresolvedProperty, Type(), Loc);
+    static Component forUnresolvedMember(DeclNameRef UnresolvedName,
+                                         SourceLoc Loc) {
+      return Component(UnresolvedName, Kind::UnresolvedMember, Type(), Loc);
     }
-    
+
     /// Create an unresolved component for a subscript.
     static Component forUnresolvedSubscript(ASTContext &ctx,
                                             ArgumentList *argList);
@@ -5907,7 +5907,7 @@ public:
         return true;
 
       case Kind::UnresolvedSubscript:
-      case Kind::UnresolvedProperty:
+      case Kind::UnresolvedMember:
       case Kind::Invalid:
       case Kind::CodeCompletion:
         return false;
@@ -5925,7 +5925,7 @@ public:
       case Kind::OptionalChain:
       case Kind::OptionalWrap:
       case Kind::OptionalForce:
-      case Kind::UnresolvedProperty:
+      case Kind::UnresolvedMember:
       case Kind::Property:
       case Kind::Identity:
       case Kind::TupleElement:
@@ -5954,7 +5954,7 @@ public:
       case Kind::OptionalChain:
       case Kind::OptionalWrap:
       case Kind::OptionalForce:
-      case Kind::UnresolvedProperty:
+      case Kind::UnresolvedMember:
       case Kind::Property:
       case Kind::Identity:
       case Kind::TupleElement:
@@ -5967,7 +5967,7 @@ public:
 
     DeclNameRef getUnresolvedDeclName() const {
       switch (getKind()) {
-      case Kind::UnresolvedProperty:
+      case Kind::UnresolvedMember:
       case Kind::DictionaryKey:
         return Decl.UnresolvedName;
 
@@ -5993,7 +5993,7 @@ public:
         return true;
 
       case Kind::Invalid:
-      case Kind::UnresolvedProperty:
+      case Kind::UnresolvedMember:
       case Kind::UnresolvedSubscript:
       case Kind::OptionalChain:
       case Kind::OptionalWrap:
@@ -6014,7 +6014,7 @@ public:
         return Decl.ResolvedDecl;
 
       case Kind::Invalid:
-      case Kind::UnresolvedProperty:
+      case Kind::UnresolvedMember:
       case Kind::UnresolvedSubscript:
       case Kind::OptionalChain:
       case Kind::OptionalWrap:
@@ -6034,7 +6034,7 @@ public:
           return TupleIndex;
                 
         case Kind::Invalid:
-        case Kind::UnresolvedProperty:
+        case Kind::UnresolvedMember:
         case Kind::UnresolvedSubscript:
         case Kind::OptionalChain:
         case Kind::OptionalWrap:
