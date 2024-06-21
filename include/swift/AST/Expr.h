@@ -5740,6 +5740,7 @@ public:
     } Decl;
 
     ApplyExpr *ComponentApplyExpr;
+    FunctionRefKind ComponentFuncRefKind;
     ArgumentList *SubscriptArgList;
     const ProtocolConformanceRef *SubscriptHashableConformancesData;
 
@@ -5756,14 +5757,21 @@ public:
     // Private constructor for property, method or #keyPath dictionary key.
     explicit Component(DeclNameOrRef decl, Kind kind, Type type, SourceLoc loc)
         : Component(kind, type, loc) {
-      assert(kind == Kind::Property || kind == Kind::UnresolvedMember ||
-             kind == Kind::Method || kind == Kind::DictionaryKey);
+
+      assert(kind == Kind::Property || kind == Kind::Method ||
+             kind == Kind::DictionaryKey);
       Decl = decl;
     }
-    
+
+    // Private constructor for unresolved member element kind.
+    explicit Component(DeclNameOrRef decl, FunctionRefKind funcRefKind,
+                       SourceLoc loc)
+        : Decl(decl), ComponentFuncRefKind(funcRefKind),
+          KindValue(Kind::UnresolvedMember), Loc(loc) {}
+
     // Private constructor for apply element kind.
-    explicit Component(ApplyExpr *expr, ArgumentList *argList, SourceLoc loc)
-        : ComponentApplyExpr(expr), SubscriptArgList(argList),
+    explicit Component(ApplyExpr *expr, SourceLoc loc)
+        : ComponentApplyExpr(expr), SubscriptArgList(expr->getArgs()),
           KindValue(Kind::Apply), Loc(loc) {}
 
     // Private constructor for tuple element kind.
@@ -5779,10 +5787,12 @@ public:
   public:
     Component() : Component(Kind::Invalid, Type(), SourceLoc()) {}
 
-    /// Create an unresolved component for a member.
+    /// Create an unresolved component for a member. Needs functionrefkind
+    /// Needs functionrefkind/unresolveddotexpr
     static Component forUnresolvedMember(DeclNameRef UnresolvedName,
+                                         FunctionRefKind FuncRefKind,
                                          SourceLoc Loc) {
-      return Component(UnresolvedName, Kind::UnresolvedMember, Type(), Loc);
+      return Component(UnresolvedName, FuncRefKind, Loc);
     }
 
     /// Create an unresolved component for a subscript.
@@ -5803,11 +5813,12 @@ public:
     static Component forMethod(ConcreteDeclRef method, Type methodType, SourceLoc loc) {
       return Component(method, Kind::Method, methodType, loc);
     }
-    
+
     /// Create a component for applied component.
-    static Component forApply(ApplyExpr *expr, ArgumentList *argList,
-                              SourceLoc loc) {
-      return Component(expr, argList, loc);
+    /// ConcreteDeclRef instead of ApplyExpr, functiondeclref
+    /// 100% split these
+    static Component forApply(ApplyExpr *expr, SourceLoc loc) {
+      return Component(expr, loc);
     }
 
     /// Create a component for a property.
