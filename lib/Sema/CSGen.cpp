@@ -3320,31 +3320,10 @@ namespace {
       SmallVector<AnyFunctionType::Param, 8> params;
       getMatchingParams(expr->getArgs(), params);
       
-      
-      // If member has a type, use it directly.
-      // Otherwise, assign new type var to be solved.
-      if (CS.hasType(fnExpr)) {
-        auto memberTy = CS.getType(fnExpr);
-        
-        CS.addConstraint(ConstraintKind::ApplicableFunction,
-                         FunctionType::get(params, resultType, extInfo),
-                         memberTy,
-          CS.getConstraintLocator(expr, ConstraintLocator::ApplyFunction));
-        
-      } else {
-        auto locator = CS.getConstraintLocator(expr);
-        auto memberLocator =
-          CS.getConstraintLocator(locator,
-                                  ConstraintLocator::UnresolvedMember);
-        
-        auto memberTV = CS.createTypeVariable(
-            memberLocator, TVO_CanBindToLValue | TVO_CanBindToNoEscape);
-        
-        CS.addConstraint(ConstraintKind::ApplicableFunction,
-                         FunctionType::get(params, resultType, extInfo),
-                         memberTV,
-          CS.getConstraintLocator(expr, ConstraintLocator::ApplyFunction));
-      }
+      CS.addConstraint(ConstraintKind::ApplicableFunction,
+                       FunctionType::get(params, resultType, extInfo),
+                       CS.getType(fnExpr),
+      CS.getConstraintLocator(expr, ConstraintLocator::ApplyFunction));
         
       // If we ended up resolving the result type variable to a concrete type,
       // set it as the favored type for this expression.
@@ -3812,14 +3791,12 @@ namespace {
                                                              // needed
                     : component.getDeclRef().getDecl()->createNameRef();
 
-            // need to fix this. Use UnresolvedDotExpr
-//            auto refKind = lookupName.isSimpleName()
-//              ? FunctionRefKind::SingleApply
-//              : FunctionRefKind::Compound;
+            // Possibly use UnresolvedDotExpr instead.
+            auto refKind = component.getFunctionRefKind();
             CS.addValueMemberConstraint(base, lookupName,
                                         memberTy,
                                         CurDC,
-                                        FunctionRefKind::SingleApply,
+                                        refKind,
                                         /*outerAlternatives=*/{},
                                         memberLocator);
             base = memberTy;
@@ -3840,9 +3817,11 @@ namespace {
                                                            // needed
                   : component.getDeclRef().getDecl()->createNameRef();
 
-          auto refKind = lookupName.isSimpleName()
-            ? FunctionRefKind::Unapplied
-            : FunctionRefKind::Compound;
+          // Maybe this works here too?
+          auto refKind = component.getFunctionRefKind();
+//          auto refKind = lookupName.isSimpleName()
+//            ? FunctionRefKind::Unapplied
+//            : FunctionRefKind::Compound;
           CS.addValueMemberConstraint(base, lookupName,
                                       memberTy,
                                       CurDC,
@@ -3925,12 +3904,8 @@ namespace {
           llvm_unreachable("DictionaryKey only valid in #keyPath");
           break;
         case KeyPathExpr::Component::Kind::Apply: {
-          // tv result type
-
-          // ApplyFunction r: base l: resultTy () -> fun
           auto *applyExpr = component.getApplyExpr();
           CS.setType(applyExpr->getFn(), base);
-          
           base = visitApplyExpr(applyExpr);
           break;
         }
