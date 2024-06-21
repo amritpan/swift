@@ -3812,14 +3812,14 @@ namespace {
                                                              // needed
                     : component.getDeclRef().getDecl()->createNameRef();
 
-            // need to fix this. How to look up refkind?
+            // need to fix this. Use UnresolvedDotExpr
 //            auto refKind = lookupName.isSimpleName()
 //              ? FunctionRefKind::SingleApply
 //              : FunctionRefKind::Compound;
             CS.addValueMemberConstraint(base, lookupName,
                                         memberTy,
                                         CurDC,
-                                        FunctionRefKind::Unapplied,
+                                        FunctionRefKind::SingleApply,
                                         /*outerAlternatives=*/{},
                                         memberLocator);
             base = memberTy;
@@ -3928,7 +3928,9 @@ namespace {
           // tv result type
 
           // ApplyFunction r: base l: resultTy () -> fun
-          auto applyExpr = component.getApplyExpr();
+          auto *applyExpr = component.getApplyExpr();
+          CS.setType(applyExpr->getFn(), base);
+          
           base = visitApplyExpr(applyExpr);
           break;
         }
