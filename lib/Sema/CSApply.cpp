@@ -5147,12 +5147,21 @@ namespace {
             kind = KeyPathExpr::Component::Kind::UnresolvedSubscript;
           }
         }
+        
+        ConcreteDeclRef functionRef;
+        ConstraintLocator *funcLocator;
 
         switch (kind) {
         case KeyPathExpr::Component::Kind::UnresolvedMember: {
           buildKeyPathMemberComponent(solution.getOverloadChoice(calleeLoc),
                                       origComponent.getLoc(), calleeLoc,
                                       resolvedComponents);
+          // Remove. Put w/e necesary on Component.
+          auto *member = solution.getOverloadChoice(calleeLoc).choice.getDeclOrNull();
+          auto fnDecl = cast<FuncDecl>(member);
+          auto ref = resolveConcreteDeclRef(fnDecl, calleeLoc);
+          functionRef = ref;
+          funcLocator = calleeLoc;
           break;
         }
         case KeyPathExpr::Component::Kind::UnresolvedSubscript: {
@@ -5205,10 +5214,20 @@ namespace {
           resolvedComponents.push_back(component);
           break;
         }
+        case KeyPathExpr::Component::Kind::Apply: {
+          buildKeyPathApplyComponent(solution.getOverloadChoice(funcLocator),
+                                         origComponent.getLoc(),
+                                          functionRef,
+                                         origComponent.getApplyExpr(),
+                                         componentLocator, resolvedComponents);
+          //getResolvedConcreteDeclRefExpr
+          
+          break;
+ 
+        }
         case KeyPathExpr::Component::Kind::Property:
-        case KeyPathExpr::Component::Kind::Method:
-        case KeyPathExpr::Component::Kind::Apply:
         case KeyPathExpr::Component::Kind::Subscript:
+        case KeyPathExpr::Component::Kind::Method:
         case KeyPathExpr::Component::Kind::OptionalWrap:
         case KeyPathExpr::Component::Kind::TupleElement:
           llvm_unreachable("already resolved");
@@ -5386,12 +5405,12 @@ namespace {
           // There is a fix which diagnoses such situation already.
           assert(!varDecl->isStatic());
           
-          // Compute the concrete reference to the member.
+          // Compute the concrete reference to the property member.
           auto ref = resolveConcreteDeclRef(varDecl, locator);
           components.push_back(
               KeyPathExpr::Component::forProperty(ref, resolvedTy, componentLoc));
         } else if (auto fnDecl = cast<FuncDecl>(member)) {
-          // Compute the concrete reference to the member.
+          // Compute the concrete reference to the method member.
           auto ref = resolveConcreteDeclRef(fnDecl, locator);
           components.push_back(
               KeyPathExpr::Component::forMethod(ref, resolvedTy, componentLoc));
@@ -5408,6 +5427,61 @@ namespace {
           getIUOForceUnwrapCount(locator, IUOReferenceKind::Value);
       for (unsigned i = 0; i < unwrapCount; ++i)
         buildKeyPathOptionalForceComponent(components);
+    }
+    
+    void buildKeyPathApplyComponent(
+        const SelectedOverload &overload, SourceLoc componentLoc,
+        ConcreteDeclRef funcDecl, ApplyExpr *apply, ConstraintLocator *locator,
+                                    SmallVectorImpl<KeyPathExpr::Component> &components) {
+      auto &ctx = cs.getASTContext();
+      
+      auto fn = apply->getFn();
+      auto fnType = cs.getType(fn);
+      auto function = cast<FuncDecl>(overload.choice.getDecl());
+      auto memberLoc = cs.getCalleeLocator(locator);
+      
+      // Compute substitutions to refer to the member.
+      auto ref = resolveConcreteDeclRef(function, memberLoc);
+//      auto ref = funcDecl;
+      
+      auto funcType =
+      simplifyType(overload.adjustedOpenedType)->castTo<AnyFunctionType>();
+      auto resolvedTy = funcType->getResult();
+      
+      // Coerce the indices to the type the function expects.
+//      ArgumentList args;
+//      args = coerceCallArguments(
+//                                 args, funcType, ref, /*applyExpr*/ nullptr,
+//                                 cs.getConstraintLocator(locator, ConstraintLocator::ApplyArgument),
+//                                 /*appliedPropertyWrappers*/ {});
+      
+      // Hash the captured index values in order for
+      // KeyPath itself to be hashable, so check that all of the args
+      // are hashable and collect their conformances here.
+      // (Just like in subscripts).
+//      SmallVector<ProtocolConformanceRef, 4> conformances;
+//
+//      auto hashable = ctx.getProtocol(KnownProtocolKind::Hashable);
+
+//      auto fnType = overload.adjustedOpenedType->castTo<FunctionType>();
+//      SmallVector<Identifier, 4> newLabels;
+//      for (auto &param : fnType->getParams()) {
+//        newLabels.push_back(param.getLabel());
+//
+//        auto indexType = simplifyType(param.getParameterType());
+//        // Index type conformance to Hashable protocol has been
+//        // verified by the solver, we just need to get it again
+//        // with all of the generic parameters resolved.
+//        auto hashableConformance =
+//          dc->getParentModule()->checkConformance(indexType, hashable);
+//        assert(hashableConformance);
+//
+//        conformances.push_back(hashableConformance);
+//      }
+//      
+      // Store as a resolved component with args and conformances
+      
+      // Handle optionals with
     }
 
     void buildKeyPathSubscriptComponent(
