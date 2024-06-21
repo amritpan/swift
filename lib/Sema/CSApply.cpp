@@ -2492,8 +2492,8 @@ namespace {
         auto &comp = KPE->getComponents()[kpElt->getIndex()];
 
         if (comp.getKind() == Component::Kind::UnresolvedMember) {
-          buildKeyPathPropertyComponent(overload, comp.getLoc(), componentLoc,
-                                        components);
+          buildKeyPathMemberComponent(overload, comp.getLoc(), componentLoc,
+                                      components);
         } else if (comp.getKind() == Component::Kind::UnresolvedSubscript) {
           buildKeyPathSubscriptComponent(overload, comp.getLoc(),
                                          comp.getSubscriptArgs(), componentLoc,
@@ -2505,8 +2505,8 @@ namespace {
       }
 
       if (auto *UDE = dyn_cast<UnresolvedDotExpr>(anchor)) {
-        buildKeyPathPropertyComponent(overload, UDE->getLoc(), componentLoc,
-                                      components);
+        buildKeyPathMemberComponent(overload, UDE->getLoc(), componentLoc,
+                                    components);
       } else if (auto *SE = dyn_cast<SubscriptExpr>(anchor)) {
         buildKeyPathSubscriptComponent(overload, SE->getLoc(), SE->getArgs(),
                                        componentLoc, components);
@@ -5150,9 +5150,9 @@ namespace {
 
         switch (kind) {
         case KeyPathExpr::Component::Kind::UnresolvedMember: {
-          buildKeyPathPropertyComponent(solution.getOverloadChoice(calleeLoc),
-                                        origComponent.getLoc(), calleeLoc,
-                                        resolvedComponents);
+          buildKeyPathMemberComponent(solution.getOverloadChoice(calleeLoc),
+                                      origComponent.getLoc(), calleeLoc,
+                                      resolvedComponents);
           break;
         }
         case KeyPathExpr::Component::Kind::UnresolvedSubscript: {
@@ -5373,7 +5373,7 @@ namespace {
           KeyPathExpr::Component::forOptionalForce(objectTy, loc));
     }
 
-    void buildKeyPathPropertyComponent(
+    void buildKeyPathMemberComponent(
         const SelectedOverload &overload, SourceLoc componentLoc,
         ConstraintLocator *locator,
         SmallVectorImpl<KeyPathExpr::Component> &components) {
