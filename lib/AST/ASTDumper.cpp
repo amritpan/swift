@@ -3129,7 +3129,7 @@ public:
             printHead("optional_wrap", ASTNodeColor);
             break;
 
-          case KeyPathExpr::Component::Kind::Property:
+          case KeyPathExpr::Component::Kind::Member:
             printHead("property", ASTNodeColor);
             printDeclRefField(component.getDeclRef(), "decl");
             break;
@@ -3140,7 +3140,7 @@ public:
             break;
 
           case KeyPathExpr::Component::Kind::UnresolvedMember:
-            printHead("unresolved_property", ASTNodeColor);
+            printHead("unresolved_member", ASTNodeColor);
             printFieldQuoted(component.getUnresolvedDeclName(), "decl_name",
                              IdentifierColor);
             break;

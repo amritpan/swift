@@ -4835,7 +4835,7 @@ void PrintAST::printKeyPathComponents(KeyPathExpr *expr, ArrayRef<KeyPathExpr::C
           printArgumentList(args);
           break;
         }
-        case ComponentKind::Property: {
+        case ComponentKind::Member: {
           Printer << component.getUnresolvedDeclName();
           break;
         }
