@@ -3148,6 +3148,9 @@ public:
           case KeyPathExpr::Component::Kind::UnresolvedApply:
             printHead("unresolved_apply", ASTNodeColor);
             break;
+          case KeyPathExpr::Component::Kind::Apply:
+            printHead("apply", ASTNodeColor);
+            break;
           case KeyPathExpr::Component::Kind::Identity:
             printHead("identity", ASTNodeColor);
             break;
