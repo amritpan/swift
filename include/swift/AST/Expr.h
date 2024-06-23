@@ -5783,7 +5783,6 @@ public:
     // Private constructor for unresolved member, member or #keyPath
     // dictionary key.
     explicit Component(DeclNameOrRef decl, Kind kind, Type type, SourceLoc loc)
-<<<<<<< HEAD
         : Decl(decl), KindValue(kind), ComponentType(type), Loc(loc) {
       assert(kind == Kind::Member || kind == Kind::UnresolvedMember ||
              kind == Kind::DictionaryKey);
@@ -5976,6 +5975,18 @@ public:
         return {};
       }
       llvm_unreachable("unhandled kind");
+    }
+
+    bool isDeclSubscript() const {
+      if (KindValue == Kind::UnresolvedMember) {
+        return Decl.UnresolvedName.getFullName().getBaseName().isSubscript();
+      } else if (KindValue == Kind::Member) {
+        auto *memberDecl = Decl.ResolvedDecl.getDecl();
+        if (auto subscriptDecl = dyn_cast<SubscriptDecl>(memberDecl)) {
+          return true;
+        }
+      }
+      return false;
     }
 
     DeclNameRef getUnresolvedDeclName() const {

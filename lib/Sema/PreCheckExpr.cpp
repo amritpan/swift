@@ -2299,8 +2299,11 @@ void PreCheckExpression::resolveKeyPathExpr(KeyPathExpr *KPE) {
         }
       } else if (auto SE = dyn_cast<SubscriptExpr>(expr)) {
         // .[0] or just plain [0]
+        DeclNameRef subscriptNameRef = DeclNameRef::createSubscript();
         components.push_back(
             KeyPathExpr::Component::forUnresolvedApply(SE->getArgs()));
+        components.push_back(KeyPathExpr::Component::forUnresolvedMember(
+            subscriptNameRef, SE->getLoc()));
 
         expr = SE->getBase();
       } else if (auto BOE = dyn_cast<BindOptionalExpr>(expr)) {
