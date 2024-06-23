@@ -314,26 +314,33 @@ static bool buildObjCKeyPathString(KeyPathExpr *E,
       continue;
 
     case KeyPathExpr::Component::Kind::Member: {
-      // Property references must be to @objc properties.
-      // TODO: If we added special properties matching KVC operators like '@sum',
-      // '@count', etc. those could be mapped too.
-      auto property = cast<VarDecl>(component.getDeclRef().getDecl());
-      if (!property->isObjC())
+      if (auto subscript =
+              isa<SubscriptDecl>(component.getDeclRef().getDecl())) {
+        // Subscripts aren't generally represented in KVC.
+        // TODO: There are some subscript forms we could map to KVC, such as
+        // when indexing a Dictionary or NSDictionary by string, or when
+        // applying a mapping subscript operation to Array/Set or NSArray/NSSet.
         return false;
-      if (!buf.empty()) {
-        buf.push_back('.');
+      } else {
+        // Property references must be to @objc properties.
+        // TODO: If we added special properties matching KVC operators like
+        // '@sum',
+        // '@count', etc. those could be mapped too.
+        auto property = cast<VarDecl>(component.getDeclRef().getDecl());
+        if (!property->isObjC())
+          return false;
+        if (!buf.empty()) {
+          buf.push_back('.');
+        }
+        auto objcName = property->getObjCPropertyName().str();
+        buf.append(objcName.begin(), objcName.end());
+        continue;
       }
-      auto objcName = property->getObjCPropertyName().str();
-      buf.append(objcName.begin(), objcName.end());
-      continue;
     }
     case KeyPathExpr::Component::Kind::TupleElement:
     case KeyPathExpr::Component::Kind::Subscript:
     case KeyPathExpr::Component::Kind::Apply:
-      // Subscripts and tuples aren't generally represented in KVC.
-      // TODO: There are some subscript forms we could map to KVC, such as
-      // when indexing a Dictionary or NSDictionary by string, or when applying
-      // a mapping subscript operation to Array/Set or NSArray/NSSet.
+      // Tuples aren't generally represented in KVC.
       return false;
     case KeyPathExpr::Component::Kind::Invalid:
     case KeyPathExpr::Component::Kind::UnresolvedMember:
@@ -2465,6 +2472,9 @@ namespace {
       switch (overload.choice.getKind()) {
       case OverloadChoiceKind::DynamicMemberLookup:
       case OverloadChoiceKind::KeyPathDynamicMemberLookup: {
+        //        buildKeyPathMemberComponent(overload, dotLoc, componentLoc,
+        //        components); buildKeyPathApplyComponent(overload,
+        //        /*args=*/nullptr, )
         buildKeyPathSubscriptComponent(overload, dotLoc, /*args=*/nullptr,
                                        componentLoc, components);
         return makeKeyPath(components);
@@ -2486,9 +2496,15 @@ namespace {
           buildKeyPathMemberComponent(overload, comp.getLoc(), componentLoc,
                                       components);
         } else if (comp.getKind() == Component::Kind::UnresolvedApply) {
-          buildKeyPathSubscriptComponent(overload, comp.getLoc(),
-                                         comp.getArgs(), componentLoc,
-                                         components);
+          // Get the calleeLoc of the member that requires application
+          // resolution of its arguments.
+          auto memberComponentLocator = cs.getConstraintLocator(
+              KPE, LocatorPathElt::KeyPathComponent(kpElt->getIndex() - 1));
+          buildKeyPathApplyComponent(overload, comp.getArgs(), componentLoc,
+                                     memberComponentLocator, components);
+          //          buildKeyPathSubscriptComponent(overload, comp.getLoc(),
+          //                                         comp.getArgs(),
+          //                                         componentLoc, components);
         } else {
           return nullptr;
         }
@@ -5120,8 +5136,7 @@ namespace {
 
         bool isDynamicMember = false;
         // If this is an unresolved link, make sure we resolved it.
-        if (kind == KeyPathExpr::Component::Kind::UnresolvedMember ||
-            kind == KeyPathExpr::Component::Kind::UnresolvedApply) {
+        if (kind == KeyPathExpr::Component::Kind::UnresolvedMember) {
           auto foundDecl = solution.getOverloadChoiceIfAvailable(calleeLoc);
           if (!foundDecl) {
             // If we couldn't resolve the component, leave it alone.
@@ -5147,9 +5162,15 @@ namespace {
           break;
         }
         case KeyPathExpr::Component::Kind::UnresolvedApply: {
-          buildKeyPathSubscriptComponent(
-              solution.getOverloadChoice(calleeLoc), origComponent.getLoc(),
-              origComponent.getArgs(), componentLocator, resolvedComponents);
+          // Get the calleeLoc of the member that requires application
+          // resolution of its arguments.
+          auto memberComponentLocator = cs.getConstraintLocator(
+              E, LocatorPathElt::KeyPathComponent(i - 1));
+          auto memberCalleeLoc = cs.getCalleeLocator(memberComponentLocator);
+          buildKeyPathApplyComponent(
+              solution.getOverloadChoice(memberCalleeLoc),
+              origComponent.getArgs(), componentLocator, memberComponentLocator,
+              resolvedComponents);
           break;
         }
         case KeyPathExpr::Component::Kind::OptionalChain: {
@@ -5207,9 +5228,16 @@ namespace {
           break;
         }
 
-        // Update "componentTy" with the result type of the last component.
         assert(!resolvedComponents.empty());
-        componentTy = resolvedComponents.back().getComponentType();
+        if (resolvedComponents.back().getArgs() != nullptr && i == E->getComponents().size() - 1) {
+          // If the last component is Kind::UnresolvedApply/Apply, use the
+          // penultimate component to get the type of the member attached to the arguments.
+          componentTy = resolvedComponents[resolvedComponents.size() - 2]
+                            .getComponentType();
+        } else {
+          // Update "componentTy" with the result type of the last component.
+          componentTy = resolvedComponents.back().getComponentType();
+        }
       }
 
       // Wrap a non-optional result if there was chaining involved.
@@ -5367,17 +5395,16 @@ namespace {
         ConstraintLocator *locator,
         SmallVectorImpl<KeyPathExpr::Component> &components) {
       auto resolvedTy = simplifyType(overload.adjustedOpenedType);
-      if (auto *property = overload.choice.getDeclOrNull()) {
-        // Key paths can only refer to properties currently.
-        auto varDecl = cast<VarDecl>(property);
+      if (auto *member = overload.choice.getDeclOrNull()) {
         // Key paths don't work with mutating-get properties.
-        assert(!varDecl->isGetterMutating());
-        // Key paths don't currently support static members.
-        // There is a fix which diagnoses such situation already.
-        assert(!varDecl->isStatic());
+        if (auto varDecl = dyn_cast<VarDecl>(member)) {
+          assert(!varDecl->isGetterMutating());
+        } else if (auto subscriptDecl = dyn_cast<SubscriptDecl>(member)) {
+          assert(!subscriptDecl->isGetterMutating());
+        }
 
         // Compute the concrete reference to the member.
-        auto ref = resolveConcreteDeclRef(property, locator);
+        auto ref = resolveConcreteDeclRef(member, locator);
         components.push_back(
             KeyPathExpr::Component::forMember(ref, resolvedTy, componentLoc));
       } else {
@@ -5390,6 +5417,54 @@ namespace {
           getIUOForceUnwrapCount(locator, IUOReferenceKind::Value);
       for (unsigned i = 0; i < unwrapCount; ++i)
         buildKeyPathOptionalForceComponent(components);
+    }
+
+    void buildKeyPathApplyComponent(
+        const SelectedOverload &overload, ArgumentList *args,
+        ConstraintLocator *applyLocator, ConstraintLocator *memberLocator,
+        SmallVectorImpl<KeyPathExpr::Component> &components) {
+      auto &ctx = cs.getASTContext();
+
+      // Compute the type and substitutions to refer to the member that
+      // requires resolution of its arguments.
+      auto memberTy =
+          simplifyType(overload.adjustedOpenedType)->castTo<AnyFunctionType>();
+      auto subscript = cast<SubscriptDecl>(overload.choice.getDecl());
+      auto memberRef = resolveConcreteDeclRef(subscript, memberLocator);
+
+      // Coerce the indices to the type the member expects.
+      args = coerceCallArguments(
+          args, memberTy, memberRef, /*applyExpr*/ nullptr,
+          cs.getConstraintLocator(applyLocator,
+                                  ConstraintLocator::ApplyArgument),
+          /*appliedPropertyWrappers*/ {});
+
+      // We need to be able to hash the captured index values in order for
+      // KeyPath itself to be hashable, so check that all of the subscript
+      // index components are hashable and collect their conformances here.
+      SmallVector<ProtocolConformanceRef, 4> conformances;
+
+      auto hashable = ctx.getProtocol(KnownProtocolKind::Hashable);
+
+      auto fnType = overload.adjustedOpenedType->castTo<FunctionType>();
+      SmallVector<Identifier, 4> newLabels;
+      for (auto &param : fnType->getParams()) {
+        newLabels.push_back(param.getLabel());
+
+        auto indexType = simplifyType(param.getParameterType());
+        // Index type conformance to Hashable protocol has been
+        // verified by the solver, we just need to get it again
+        // with all of the generic parameters resolved.
+        auto hashableConformance =
+            dc->getParentModule()->checkConformance(indexType, hashable);
+        assert(hashableConformance);
+
+        conformances.push_back(hashableConformance);
+      }
+
+      auto comp = KeyPathExpr::Component::forApply(
+          args, ctx.AllocateCopy(conformances));
+      components.push_back(comp);
     }
 
     void buildKeyPathSubscriptComponent(
