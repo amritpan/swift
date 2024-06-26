@@ -1059,50 +1059,123 @@ namespace {
 
     /// Add constraints for a subscript operation.
     Type addSubscriptConstraints(
-        Expr *anchor, Type baseTy, ValueDecl *declOrNull, ArgumentList *argList,
-        ConstraintLocator *locator = nullptr,
+        Expr *anchor, Type baseTy, ValueDecl *declOrNull,
+        ArgumentList *argList = nullptr, ConstraintLocator *locator = nullptr,
         SmallVectorImpl<TypeVariableType *> *addedTypeVars = nullptr) {
       // Locators used in this expression.
       if (locator == nullptr)
         locator = CS.getConstraintLocator(anchor);
 
-      auto fnLocator =
-        CS.getConstraintLocator(locator,
-                                ConstraintLocator::ApplyFunction);
       auto memberLocator =
-        CS.getConstraintLocator(locator,
-                                ConstraintLocator::SubscriptMember);
-      auto resultLocator =
-        CS.getConstraintLocator(locator,
+          CS.getConstraintLocator(locator, ConstraintLocator::SubscriptMember);
+
+      // FIXME: This can only happen when diagnostics successfully type-checked
+      // sub-expression of the subscript and mutated AST, but under normal
+      // circumstances subscript should never have InOutExpr as a direct child
+      // until type checking is complete and expression is re-written.
+      // Proper fix for such situation requires preventing diagnostics from
+      // re-writing AST after successful type checking of the sub-expressions.
+      if (auto inoutTy = baseTy->getAs<InOutType>()) {
+        baseTy = LValueType::get(inoutTy->getObjectType());
+      }
+
+      // Add the member constraint for a subscript declaration.
+      auto subscriptMemberTy = CS.createTypeVariable(
+          memberLocator, TVO_CanBindToLValue | TVO_CanBindToNoEscape);
+      if (addedTypeVars)
+        addedTypeVars->push_back(subscriptMemberTy);
+
+      // FIXME: synthesizeMaterializeForSet() wants to statically dispatch to
+      // a known subscript here. This might be cleaner if we split off a new
+      // UnresolvedSubscriptExpr from SubscriptExpr.
+      if (auto decl = declOrNull) {
+        OverloadChoice choice =
+            OverloadChoice(baseTy, decl, FunctionRefKind::DoubleApply);
+        CS.addBindOverloadConstraint(subscriptMemberTy, choice, memberLocator,
+                                     CurDC);
+      } else {
+        CS.addValueMemberConstraint(baseTy, DeclNameRef::createSubscript(),
+                                    subscriptMemberTy, CurDC,
+                                    FunctionRefKind::DoubleApply,
+                                    /*outerAlternatives=*/{}, memberLocator);
+      }
+
+      return subscriptMemberTy;
+    }
+
+    /// Add constraints for subscript index arguments separately from subscript
+    /// member in KeyPaths.
+    Type addSubscriptApplyConstraints(
+        Expr *anchor, Type subscriptMemberTy, ArgumentList *argList,
+        ConstraintLocator *applyComponentLoc,
+        SmallVectorImpl<TypeVariableType *> *addedTypeVars = nullptr) {
+      // Locators used in this expression.
+      if (applyComponentLoc == nullptr)
+        applyComponentLoc = CS.getConstraintLocator(anchor);
+      
+      auto fnLocator =
+        CS.getConstraintLocator(applyComponentLoc,
+                                ConstraintLocator::ApplyFunction);
+
+      auto fnResultLocator =
+        CS.getConstraintLocator(applyComponentLoc,
                                 ConstraintLocator::FunctionResult);
 
-      CS.associateArgumentList(memberLocator, argList);
+      CS.associateArgumentList(applyComponentLoc, argList);
 
+      Type outputTy =
+          getSubscriptOutputType(anchor, subscriptMemberTy, argList);
+
+      if (outputTy.isNull()) {
+        outputTy = CS.createTypeVariable(
+            fnResultLocator, TVO_CanBindToLValue | TVO_CanBindToNoEscape);
+        if (addedTypeVars)
+          addedTypeVars->push_back(outputTy->castTo<TypeVariableType>());
+      }
+
+      SmallVector<AnyFunctionType::Param, 8> params;
+      getMatchingParams(argList, params);
+
+      // Add the constraint that the index expression's type be convertible
+      // to the input type of the subscript operator.
+      CS.addConstraint(ConstraintKind::ApplicableFunction,
+                       FunctionType::get(params, outputTy), subscriptMemberTy,
+                       fnLocator);
+
+      Type fixedOutputType =
+          CS.getFixedTypeRecursive(outputTy, /*wantRValue=*/false);
+      if (!fixedOutputType->isTypeVariableOrMember()) {
+        CS.setFavoredType(anchor, fixedOutputType.getPointer());
+        outputTy = fixedOutputType;
+      }
+
+      return outputTy;
+    }
+
+    /// For an integer subscript expression on an array slice type, instead of
+    /// introducing a new type variable we can easily obtain the element type.
+    Type getSubscriptOutputType(Expr *anchor, Type baseTy,
+                                ArgumentList *argList) {
       Type outputTy;
 
-      // For an integer subscript expression on an array slice type, instead of
-      // introducing a new type variable we can easily obtain the element type.
       if (isa<SubscriptExpr>(anchor)) {
-
-        auto isLValueBase = false;
-        auto baseObjTy = baseTy;
+        bool isLValueBase = false;
+        Type baseObjTy = baseTy;
         if (baseObjTy->is<LValueType>()) {
           isLValueBase = true;
           baseObjTy = baseObjTy->getWithoutSpecifierType();
         }
 
         if (baseObjTy->isArrayType()) {
-
-          if (auto arraySliceTy = 
-                dyn_cast<ArraySliceType>(baseObjTy.getPointer())) {
+          if (auto arraySliceTy =
+                  dyn_cast<ArraySliceType>(baseObjTy.getPointer())) {
             baseObjTy = arraySliceTy->getDesugaredType();
           }
 
           if (argList->isUnlabeledUnary() &&
               isa<IntegerLiteralExpr>(argList->getExpr(0))) {
-
-            outputTy = baseObjTy->getAs<BoundGenericType>()->getGenericArgs()[0];
-            
+            outputTy =
+                baseObjTy->getAs<BoundGenericType>()->getGenericArgs()[0];
             if (isLValueBase)
               outputTy = LValueType::get(outputTy);
           }
@@ -1119,63 +1192,6 @@ namespace {
             }
           }
         }
-      }
-      
-      if (outputTy.isNull()) {
-        outputTy = CS.createTypeVariable(resultLocator,
-                                         TVO_CanBindToLValue | TVO_CanBindToNoEscape);
-        if (addedTypeVars)
-          addedTypeVars->push_back(outputTy->castTo<TypeVariableType>());
-      }
-
-      // FIXME: This can only happen when diagnostics successfully type-checked
-      // sub-expression of the subscript and mutated AST, but under normal
-      // circumstances subscript should never have InOutExpr as a direct child
-      // until type checking is complete and expression is re-written.
-      // Proper fix for such situation requires preventing diagnostics from
-      // re-writing AST after successful type checking of the sub-expressions.
-      if (auto inoutTy = baseTy->getAs<InOutType>()) {
-        baseTy = LValueType::get(inoutTy->getObjectType());
-      }
-
-      // Add the member constraint for a subscript declaration.
-      // FIXME: weak name!
-      auto memberTy = CS.createTypeVariable(
-          memberLocator, TVO_CanBindToLValue | TVO_CanBindToNoEscape);
-      if (addedTypeVars)
-        addedTypeVars->push_back(memberTy);
-
-      // FIXME: synthesizeMaterializeForSet() wants to statically dispatch to
-      // a known subscript here. This might be cleaner if we split off a new
-      // UnresolvedSubscriptExpr from SubscriptExpr.
-      if (auto decl = declOrNull) {
-        OverloadChoice choice =
-            OverloadChoice(baseTy, decl, FunctionRefKind::DoubleApply);
-        CS.addBindOverloadConstraint(memberTy, choice, memberLocator,
-                                     CurDC);
-      } else {
-        CS.addValueMemberConstraint(baseTy, DeclNameRef::createSubscript(),
-                                    memberTy, CurDC,
-                                    FunctionRefKind::DoubleApply,
-                                    /*outerAlternatives=*/{},
-                                    memberLocator);
-      }
-
-      SmallVector<AnyFunctionType::Param, 8> params;
-      getMatchingParams(argList, params);
-
-      // Add the constraint that the index expression's type be convertible
-      // to the input type of the subscript operator.
-      CS.addConstraint(ConstraintKind::ApplicableFunction,
-                       FunctionType::get(params, outputTy),
-                       memberTy,
-                       fnLocator);
-
-      Type fixedOutputType =
-          CS.getFixedTypeRecursive(outputTy, /*wantRValue=*/false);
-      if (!fixedOutputType->isTypeVariableOrMember()) {
-        CS.setFavoredType(anchor, fixedOutputType.getPointer());
-        outputTy = fixedOutputType;
       }
 
       return outputTy;
@@ -3787,38 +3803,49 @@ namespace {
         // This should only appear in resolved ASTs, but we may need to
         // re-type-check the constraints during failure diagnosis.
         case KeyPathExpr::Component::Kind::Member: {
-          auto memberTy = CS.createTypeVariable(resultLocator,
-                                                TVO_CanBindToLValue |
-                                                TVO_CanBindToNoEscape);
-          componentTypeVars.push_back(memberTy);
-          auto lookupName =
-              kind == KeyPathExpr::Component::Kind::UnresolvedMember
-                  ? DeclNameRef(
-                        component.getUnresolvedDeclName()) // FIXME: type change
-                                                           // needed
-                  : component.getDeclRef().getDecl()->createNameRef();
+          if (component.isDeclSubscript()) {
+            base = addSubscriptConstraints(E, base, /*decl*/ nullptr,
+                                           /*args*/ nullptr, memberLocator,
+                                           &componentTypeVars);
+          } else {
+            auto memberTy = CS.createTypeVariable(resultLocator,
+                                                  TVO_CanBindToLValue |
+                                                  TVO_CanBindToNoEscape);
+            componentTypeVars.push_back(memberTy);
+            auto lookupName =
+                kind == KeyPathExpr::Component::Kind::UnresolvedMember
+                    ? DeclNameRef(
+                          component.getUnresolvedDeclName()) // FIXME: type change
+                                                             // needed
+                    : component.getDeclRef().getDecl()->createNameRef();
 
-          auto refKind = lookupName.isSimpleName()
-            ? FunctionRefKind::Unapplied
-            : FunctionRefKind::Compound;
-          CS.addValueMemberConstraint(base, lookupName,
-                                      memberTy,
-                                      CurDC,
-                                      refKind,
-                                      /*outerAlternatives=*/{},
-                                      memberLocator);
-          base = memberTy;
+            auto refKind = lookupName.isSimpleName()
+              ? FunctionRefKind::Unapplied
+              : FunctionRefKind::Compound;
+            CS.addValueMemberConstraint(base, lookupName,
+                                        memberTy,
+                                        CurDC,
+                                        refKind,
+                                        /*outerAlternatives=*/{},
+                                        memberLocator);
+            base = memberTy;
+          }
           break;
         }
-
+            
         case KeyPathExpr::Component::Kind::UnresolvedApply:
-        case KeyPathExpr::Component::Kind::Apply:
+        case KeyPathExpr::Component::Kind::Apply: 
         // Subscript should only appear in resolved ASTs, but we may need to
         // re-type-check the constraints during failure diagnosis.
         case KeyPathExpr::Component::Kind::Subscript: {
           auto *args = component.getArgs();
-          base = addSubscriptConstraints(E, base, /*decl*/ nullptr, args,
-                                         memberLocator, &componentTypeVars);
+
+          // Subscripts are composed of Component::Kind::UnresolvedMember and
+          // Component::Kind::UnresolvedApply in that order, so get the previous component's locator to apply constraints  between the subscript and its index arguments.
+          auto subscriptComponentLoc = CS.getConstraintLocator(
+              locator, LocatorPathElt::KeyPathComponent(i - 1));
+          base = addSubscriptApplyConstraints(E, base, args, memberLocator,
+                                              &componentTypeVars);
 
           auto &ctx = CS.getASTContext();
           // All of the type variables that appear in subscript arguments
