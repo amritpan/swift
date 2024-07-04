@@ -644,19 +644,24 @@ ConstraintLocator *ConstraintSystem::getCalleeLocator(
 
     using ComponentKind = KeyPathExpr::Component::Kind;
     switch (component.getKind()) {
-    case ComponentKind::UnresolvedApply:
-    case ComponentKind::Apply:
-    case ComponentKind::Subscript:
-      // For a subscript the callee is given by 'component -> subscript member'.
-      return getConstraintLocator(
-                                  anchor, {*componentElt, ConstraintLocator::SubscriptMember});
     case ComponentKind::UnresolvedMember:
     case ComponentKind::Member:
-      // For a member, the choice is just given by the component.
-      return getConstraintLocator(anchor, *componentElt);
+      if (component.isDeclSubscript()) {
+        // For a subscript the callee is given by 'component -> subscript
+        // member'.
+        return getConstraintLocator(
+            anchor, {*componentElt, ConstraintLocator::SubscriptMember});
+      } else {
+        // For a member, the choice is just given by the component.
+        return getConstraintLocator(anchor, *componentElt);
+      }
+
     case ComponentKind::TupleElement:
       llvm_unreachable("Not implemented by CSGen");
       break;
+    case ComponentKind::UnresolvedApply:
+    case ComponentKind::Apply:
+    case ComponentKind::Subscript:
     case ComponentKind::Invalid:
     case ComponentKind::OptionalForce:
     case ComponentKind::OptionalChain:
@@ -6606,6 +6611,24 @@ ConstraintSystem::getArgumentInfoLocator(ConstraintLocator *locator) {
     }
   }
 
+  // Keypath subscript's index arguments are associated with the UnresolvedApply
+  // Component locator, not with the related constraints or the subscript member
+  // locator.
+  if (auto *KPE = getAsExpr<KeyPathExpr>(anchor)) {
+    auto kpLocator = getConstraintLocator(KPE);
+    if (auto componentElt =
+            locator->getFirstElementAs<LocatorPathElt::KeyPathComponent>()) {
+      auto component = KPE->getComponents()[componentElt->getIndex()];
+      if (component.getKind() ==
+          KeyPathExpr::Component::Kind::UnresolvedApply) {
+        auto applyComponentLoc = getConstraintLocator(
+            kpLocator,
+            LocatorPathElt::KeyPathComponent(componentElt->getIndex()));
+        return applyComponentLoc;
+      }
+    }
+  }
+
   return getCalleeLocator(locator);
 }
 
@@ -7865,7 +7888,7 @@ ConstraintSystem::inferKeyPathLiteralCapability(KeyPathExpr *keyPath) {
           }
         }
       }
-      LLVM_FALLTHROUGH;
+      break;
     }
     case KeyPathExpr::Component::Kind::Member:
     case KeyPathExpr::Component::Kind::UnresolvedMember: {
