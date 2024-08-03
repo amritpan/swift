@@ -1107,21 +1107,19 @@ namespace {
     /// member in KeyPaths.
     Type addSubscriptApplyConstraints(
         Expr *anchor, Type subscriptMemberTy, ArgumentList *argList,
-        ConstraintLocator *applyComponentLoc,
+        ConstraintLocator *applyLoc = nullptr,
         SmallVectorImpl<TypeVariableType *> *addedTypeVars = nullptr) {
       // Locators used in this expression.
-      if (applyComponentLoc == nullptr)
-        applyComponentLoc = CS.getConstraintLocator(anchor);
-      
+      if (applyLoc == nullptr)
+        applyLoc = CS.getConstraintLocator(anchor);
+
       auto fnLocator =
-        CS.getConstraintLocator(applyComponentLoc,
-                                ConstraintLocator::ApplyFunction);
+          CS.getConstraintLocator(applyLoc, ConstraintLocator::ApplyFunction);
 
       auto fnResultLocator =
-        CS.getConstraintLocator(applyComponentLoc,
-                                ConstraintLocator::FunctionResult);
+          CS.getConstraintLocator(applyLoc, ConstraintLocator::FunctionResult);
 
-      CS.associateArgumentList(applyComponentLoc, argList);
+      CS.associateArgumentList(applyLoc, argList);
 
       Type outputTy =
           getSubscriptOutputType(anchor, subscriptMemberTy, argList);
@@ -2130,8 +2128,9 @@ namespace {
       if (!isValidBaseOfMemberRef(base, diag::cannot_subscript_nil_literal))
         return nullptr;
 
-      return addSubscriptConstraints(expr, CS.getType(base), decl,
-                                     expr->getArgs());
+      auto subscriptType =
+          addSubscriptConstraints(expr, CS.getType(base), decl);
+      return addSubscriptApplyConstraints(expr, subscriptType, expr->getArgs());
     }
     
     Type visitArrayExpr(ArrayExpr *expr) {
@@ -2423,8 +2422,9 @@ namespace {
     }
 
     Type visitDynamicSubscriptExpr(DynamicSubscriptExpr *expr) {
-      return addSubscriptConstraints(expr, CS.getType(expr->getBase()),
-                                     /*decl*/ nullptr, expr->getArgs());
+      auto subscriptType = addSubscriptConstraints(
+          expr, CS.getType(expr->getBase()), /*decl*/ nullptr);
+      return addSubscriptApplyConstraints(expr, subscriptType, expr->getArgs());
     }
 
     Type visitTupleElementExpr(TupleElementExpr *expr) {
