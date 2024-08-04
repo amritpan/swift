@@ -5162,16 +5162,12 @@ namespace {
           break;
         }
         case KeyPathExpr::Component::Kind::UnresolvedApply: {
-          // Get the calleeLoc of the member that requires application
-          // resolution of its arguments.
-          auto memberComponentLocator = cs.getConstraintLocator(
-              E, LocatorPathElt::KeyPathComponent(i - 1));
-          auto memberCalleeLoc = cs.getCalleeLocator(memberComponentLocator);
+          auto memberCalleeLoc = cs.getCalleeLocForUnresolvedApply(E, i);
           buildKeyPathApplyComponent(
-              solution.getOverloadChoice(memberCalleeLoc),
-              origComponent.getArgs(), componentLocator, memberComponentLocator,
-              resolvedComponents);
-          break;
+                  solution.getOverloadChoice(memberCalleeLoc),
+                  origComponent.getArgs(), componentLocator, memberCalleeLoc,
+                  resolvedComponents);
+              break;
         }
         case KeyPathExpr::Component::Kind::OptionalChain: {
           didOptionalChain = true;
