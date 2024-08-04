@@ -1832,6 +1832,9 @@ public:
   /// expression that reads the type from the Solution
   /// expression type map.
   bool isStaticallyDerivedMetatype(Expr *E) const;
+  
+  /// Retrieve the locator for member component required to look up overloads for the member + unapplied to resolve function application.
+  ConstraintLocator* getCalleeLocForUnresolvedApply(KeyPathExpr *KPE, unsigned componentIndex);
 
   /// Retrieve the argument list that is associated with a call at the given
   /// locator.
@@ -2817,6 +2820,9 @@ public:
   /// system, and carries temporary state related to the current path
   /// we're exploring.
   SolverState *solverState = nullptr;
+  
+  /// Retrieve the locator for member component required to look up overloads for member + application to generate function application constraints.
+  ConstraintLocator* getCalleeLocForUnresolvedApply(KeyPathExpr *KPE, unsigned componentIndex);
 
   /// Form a locator that can be used to retrieve argument information cached in
   /// the constraint system for the callee described by the anchor of the
@@ -3570,6 +3576,9 @@ public:
   /// - For a function application anchor, this will be a locator describing the
   /// 'direct callee' of the call. For example, for the expression \c x.foo?()
   /// the returned locator will describe the member \c foo.
+  ///
+  /// - For a key path anchor with an unapplied component, this will be a locator
+  /// describing the unapplied component.
   ///
   /// Note that because this function deals with the anchor, given a locator
   /// anchored on \c functionA(functionB()) with path elements pointing to the

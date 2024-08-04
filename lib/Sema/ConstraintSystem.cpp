@@ -6571,6 +6571,23 @@ void ConstraintSystem::generateConstraints(
 }
 
 ConstraintLocator *
+ConstraintSystem::getCalleeLocForUnresolvedApply(KeyPathExpr *KPE,
+                                                 unsigned componentIndex) {
+  // Get the calleeLoc of the member that requires application
+  // resolution of its arguments. Keypath subscripts are a member component
+  // followed by an unapplied component, so use the member component to find the
+  // overload.
+  auto kpLocator = getConstraintLocator(KPE);
+  auto component = KPE->getComponents()[componentIndex];
+  if (component.getKind() == KeyPathExpr::Component::Kind::UnresolvedApply) {
+    auto memberComponentLocator = getConstraintLocator(
+        kpLocator, LocatorPathElt::KeyPathComponent(componentIndex - 1));
+    return getCalleeLocator(memberComponentLocator);
+  }
+  return nullptr;
+}
+
+ConstraintLocator *
 ConstraintSystem::getArgumentInfoLocator(ConstraintLocator *locator) {
   auto anchor = locator->getAnchor();
 
@@ -6663,6 +6680,12 @@ ArgumentList *Solution::getArgumentList(ConstraintLocator *locator) const {
       return known->second;
   }
   return nullptr;
+}
+
+ConstraintLocator *
+Solution::getCalleeLocForUnresolvedApply(KeyPathExpr *KPE,
+                                         unsigned componentIndex) {
+  return constraintSystem->getCalleeLocForUnresolvedApply(KPE, componentIndex);
 }
 
 #ifndef NDEBUG
@@ -6781,6 +6804,23 @@ Solution::getFunctionArgApplyInfo(ConstraintLocator *locator) const {
   std::optional<OverloadChoice> choice;
   Type rawFnType;
   auto *calleeLocator = getCalleeLocator(argLocator);
+
+  if (auto *KPE = getAsExpr<KeyPathExpr>(anchor)) {
+    auto kpLocator = getConstraintLocator(KPE);
+    if (auto componentElt =
+            locator->getFirstElementAs<LocatorPathElt::KeyPathComponent>()) {
+      auto component = KPE->getComponents()[componentElt->getIndex()];
+      if (component.getKind() ==
+          KeyPathExpr::Component::Kind::UnresolvedApply) {
+        auto memberComponentLocator = getConstraintLocator(
+            kpLocator,
+            LocatorPathElt::KeyPathComponent(componentElt->getIndex() - 1));
+        auto calleeForApplyOverload = getCalleeLocator(memberComponentLocator);
+        calleeLocator = calleeForApplyOverload;
+      }
+    }
+  }
+
   if (auto overload = getOverloadChoiceIfAvailable(calleeLocator)) {
     // If we have resolved an overload for the callee, then use that to get the
     // function type and callee.
