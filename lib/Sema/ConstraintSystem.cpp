@@ -5638,6 +5638,22 @@ bool ConstraintSystem::diagnoseAmbiguityWithFixes(
     }
 
     auto *calleeLocator = solution.getCalleeLocator(locator);
+    if (auto KPE = getAsExpr<KeyPathExpr>(calleeLocator->getAnchor())) {
+      auto kpLocator = getConstraintLocator(KPE);
+      if (auto componentElt =
+              locator->getFirstElementAs<LocatorPathElt::KeyPathComponent>()) {
+        auto component = KPE->getComponents()[componentElt->getIndex()];
+        if (component.getKind() ==
+            KeyPathExpr::Component::Kind::UnresolvedApply) {
+          auto memberComponentLocator = getConstraintLocator(
+              kpLocator,
+              LocatorPathElt::KeyPathComponent(componentElt->getIndex() - 1));
+          auto calleeForApplyOverload =
+              getCalleeLocator(memberComponentLocator);
+          calleeLocator = calleeForApplyOverload;
+        }
+      }
+    }
     fixesByCallee[calleeLocator].push_back({&solution, fix});
   }
 
