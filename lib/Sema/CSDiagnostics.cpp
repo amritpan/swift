@@ -7037,7 +7037,24 @@ bool MutatingMemberRefOnImmutableBase::diagnoseAsError() {
 }
 
 bool InvalidTupleSplatWithSingleParameterFailure::diagnoseAsError() {
-  auto selectedOverload = getCalleeOverloadChoiceIfAvailable(getLocator());
+  auto locator = getLocator();
+  if (auto KPE = getAsExpr<KeyPathExpr>(locator->getAnchor())) {
+    auto kpLocator = getConstraintLocator(KPE);
+    if (auto componentElt =
+            locator->getFirstElementAs<LocatorPathElt::KeyPathComponent>()) {
+      auto component = KPE->getComponents()[componentElt->getIndex()];
+      if (component.getKind() ==
+          KeyPathExpr::Component::Kind::UnresolvedApply) {
+        auto memberComponentLocator = getConstraintLocator(
+            kpLocator,
+            LocatorPathElt::KeyPathComponent(componentElt->getIndex() - 1));
+        auto calleeForApplyOverload =
+            getSolution().getCalleeLocator(memberComponentLocator);
+        locator = calleeForApplyOverload;
+      }
+    }
+  }
+  auto selectedOverload = getCalleeOverloadChoiceIfAvailable(locator);
   if (!selectedOverload || !selectedOverload->choice.isDecl())
     return false;
 
