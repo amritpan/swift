@@ -362,7 +362,25 @@ bool RelabelArguments::diagnoseForAmbiguity(
   for (const auto &fix : commonFixes) {
     auto &solution = *fix.first;
 
-    auto calleeLocator = solution.getCalleeLocator(getLocator());
+    auto &cs = getConstraintSystem();
+    auto locator = getLocator();
+    auto calleeLocator = solution.getCalleeLocator(locator);
+    if (auto KPE = getAsExpr<KeyPathExpr>(calleeLocator->getAnchor())) {
+      auto kpLocator = cs.getConstraintLocator(KPE);
+      if (auto componentElt =
+              locator->getFirstElementAs<LocatorPathElt::KeyPathComponent>()) {
+        auto component = KPE->getComponents()[componentElt->getIndex()];
+        if (component.getKind() ==
+            KeyPathExpr::Component::Kind::UnresolvedApply) {
+          auto memberComponentLocator = cs.getConstraintLocator(
+              kpLocator,
+              LocatorPathElt::KeyPathComponent(componentElt->getIndex() - 1));
+          auto calleeForApplyOverload =
+              cs.getCalleeLocator(memberComponentLocator);
+          calleeLocator = calleeForApplyOverload;
+        }
+      }
+    }
     if (!calleeLocator)
       return false;
 
