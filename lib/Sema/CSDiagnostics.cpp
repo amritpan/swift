@@ -1036,7 +1036,8 @@ bool LabelingFailure::diagnoseAsError() {
 }
 
 bool LabelingFailure::diagnoseAsNote() {
-  auto *args = getArgumentListFor(getLocator());
+  auto locator = getLocator();
+  auto *args = getArgumentListFor(locator);
   if (!args)
     return false;
 
@@ -1052,7 +1053,23 @@ bool LabelingFailure::diagnoseAsNote() {
     return "(" + str + ")";
   };
 
-  auto selectedOverload = getCalleeOverloadChoiceIfAvailable(getLocator());
+  if (auto KPE = getAsExpr<KeyPathExpr>(locator->getAnchor())) {
+    auto kpLocator = getConstraintLocator(KPE);
+    if (auto componentElt =
+            locator->getFirstElementAs<LocatorPathElt::KeyPathComponent>()) {
+      auto component = KPE->getComponents()[componentElt->getIndex()];
+      if (component.getKind() ==
+          KeyPathExpr::Component::Kind::UnresolvedApply) {
+        auto memberComponentLocator = getConstraintLocator(
+            kpLocator,
+            LocatorPathElt::KeyPathComponent(componentElt->getIndex() - 1));
+        auto calleeForApplyOverload =
+            getSolution().getCalleeLocator(memberComponentLocator);
+        locator = calleeForApplyOverload;
+      }
+    }
+  }
+  auto selectedOverload = getCalleeOverloadChoiceIfAvailable(locator);
   if (!selectedOverload)
     return false;
 
