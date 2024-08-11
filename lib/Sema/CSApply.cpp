@@ -2472,11 +2472,11 @@ namespace {
       switch (overload.choice.getKind()) {
       case OverloadChoiceKind::DynamicMemberLookup:
       case OverloadChoiceKind::KeyPathDynamicMemberLookup: {
-        //        buildKeyPathMemberComponent(overload, dotLoc, componentLoc,
-        //        components); buildKeyPathApplyComponent(overload,
-        //        /*args=*/nullptr, )
-        buildKeyPathSubscriptComponent(overload, dotLoc, /*args=*/nullptr,
-                                       componentLoc, components);
+        buildKeyPathMemberComponent(overload, dotLoc, componentLoc, components);
+        buildKeyPathApplyComponent(overload, dotLoc, /*args=*/nullptr,
+                                   componentLoc, componentLoc, components);
+        //        buildKeyPathSubscriptComponent(overload, dotLoc,
+        //        /*args=*/nullptr, componentLoc, components);
         return makeKeyPath(components);
       }
 
@@ -2500,11 +2500,12 @@ namespace {
           // resolution of its arguments.
           auto memberComponentLocator = cs.getConstraintLocator(
               KPE, LocatorPathElt::KeyPathComponent(kpElt->getIndex() - 1));
-          buildKeyPathApplyComponent(overload, comp.getArgs(), componentLoc,
-                                     memberComponentLocator, components);
+          buildKeyPathApplyComponent(overload, comp.getLoc(), comp.getArgs(),
+                                     componentLoc, memberComponentLocator,
+                                     components);
           //          buildKeyPathSubscriptComponent(overload, comp.getLoc(),
-          //                                         comp.getArgs(),
-          //                                         componentLoc, components);
+          //                                       comp.getArgs(),
+          //                                       componentLoc, components);
         } else {
           return nullptr;
         }
@@ -2515,8 +2516,10 @@ namespace {
         buildKeyPathMemberComponent(overload, UDE->getLoc(), componentLoc,
                                     components);
       } else if (auto *SE = dyn_cast<SubscriptExpr>(anchor)) {
-        buildKeyPathSubscriptComponent(overload, SE->getLoc(), SE->getArgs(),
-                                       componentLoc, components);
+        //        buildKeyPathSubscriptComponent(overload, SE->getLoc(),
+        //        SE->getArgs(),
+        //                                       componentLoc, components);
+        printf("\n NEED TO BUILD A SUBSCRIPT \n");
       } else {
         return nullptr;
       }
@@ -5163,11 +5166,17 @@ namespace {
         }
         case KeyPathExpr::Component::Kind::UnresolvedApply: {
           auto memberCalleeLoc = cs.getCalleeLocForUnresolvedApply(E, i);
+
+          // If this was a @dynamicMemberLookup property, then use the calleeLoc
+          // directly.
+          if (isDynamicMember)
+            memberCalleeLoc = calleeLoc;
+
           buildKeyPathApplyComponent(
-                  solution.getOverloadChoice(memberCalleeLoc),
-                  origComponent.getArgs(), componentLocator, memberCalleeLoc,
-                  resolvedComponents);
-              break;
+              solution.getOverloadChoice(memberCalleeLoc),
+              origComponent.getLoc(), origComponent.getArgs(), componentLocator,
+              memberCalleeLoc, resolvedComponents);
+          break;
         }
         case KeyPathExpr::Component::Kind::OptionalChain: {
           didOptionalChain = true;
@@ -5225,7 +5234,9 @@ namespace {
         }
 
         assert(!resolvedComponents.empty());
-        if (resolvedComponents.back().getArgs() != nullptr && i == E->getComponents().size() - 1) {
+        if (!isDynamicMember &&
+            resolvedComponents.back().getArgs() != nullptr &&
+            i == E->getComponents().size() - 1) {
           // If the last component is Kind::UnresolvedApply/Apply, use the
           // penultimate component to get the type of the member attached to the arguments.
           componentTy = resolvedComponents[resolvedComponents.size() - 2]
@@ -5416,8 +5427,9 @@ namespace {
     }
 
     void buildKeyPathApplyComponent(
-        const SelectedOverload &overload, ArgumentList *args,
-        ConstraintLocator *applyLocator, ConstraintLocator *memberLocator,
+        const SelectedOverload &overload, SourceLoc componentLoc,
+        ArgumentList *args, ConstraintLocator *applyLocator,
+        ConstraintLocator *memberLoc,
         SmallVectorImpl<KeyPathExpr::Component> &components) {
       auto &ctx = cs.getASTContext();
 
@@ -5426,7 +5438,29 @@ namespace {
       auto memberTy =
           simplifyType(overload.adjustedOpenedType)->castTo<AnyFunctionType>();
       auto subscript = cast<SubscriptDecl>(overload.choice.getDecl());
-      auto memberRef = resolveConcreteDeclRef(subscript, memberLocator);
+      auto memberRef = resolveConcreteDeclRef(subscript, memberLoc);
+
+      // If this is a @dynamicMemberLookup reference to resolve a property
+      // through the subscript(dynamicMember:) member, restore the
+      // openedType and origComponent to its full reference as if the user
+      // wrote out the subscript manually.
+      if (overload.choice.isAnyDynamicMemberLookup()) {
+        auto indexType = getTypeOfDynamicMemberIndex(overload);
+        Expr *argExpr = nullptr;
+        if (overload.choice.isKeyPathDynamicMemberLookup()) {
+          argExpr = buildKeyPathDynamicMemberArgExpr(indexType, componentLoc,
+                                                     memberLoc);
+        } else {
+          auto fieldName = overload.choice.getName().getBaseIdentifier().str();
+          argExpr = buildDynamicMemberLookupArgExpr(fieldName, componentLoc,
+                                                    indexType);
+        }
+        args =
+            ArgumentList::forImplicitSingle(ctx, ctx.Id_dynamicMember, argExpr);
+        // Record the implicit subscript expr's parameter bindings and matching
+        // direction as `coerceCallArguments` requires them.
+        solution.recordSingleArgMatchingChoice(applyLocator);
+      }
 
       // Coerce the indices to the type the member expects.
       args = coerceCallArguments(
