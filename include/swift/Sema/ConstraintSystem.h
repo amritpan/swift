@@ -1832,8 +1832,10 @@ public:
   /// expression that reads the type from the Solution
   /// expression type map.
   bool isStaticallyDerivedMetatype(Expr *E) const;
-  
-  /// Retrieve the locator for member component required to look up overloads for the member + unapplied to resolve function application.
+
+  /// Retrieve the locator for keypath member component required to look up
+  /// overloads for subscripts member and resolve constraints for subscript
+  /// index args.
   ConstraintLocator* getCalleeLocForUnresolvedApply(KeyPathExpr *KPE, unsigned componentIndex);
 
   /// Retrieve the argument list that is associated with a call at the given
@@ -2820,8 +2822,10 @@ public:
   /// system, and carries temporary state related to the current path
   /// we're exploring.
   SolverState *solverState = nullptr;
-  
-  /// Retrieve the locator for member component required to look up overloads for member + application to generate function application constraints.
+
+  /// Retrieve the locator for keypath member component required to look up
+  /// overloads for subscripts member and generate constraints for subscript
+  /// index args.
   ConstraintLocator* getCalleeLocForUnresolvedApply(KeyPathExpr *KPE, unsigned componentIndex);
 
   /// Form a locator that can be used to retrieve argument information cached in
