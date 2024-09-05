@@ -719,7 +719,7 @@ ConstraintLocator *ConstraintSystem::getCalleeLocator(
       return getConstraintLocator(
                                   anchor, {*componentElt, ConstraintLocator::SubscriptMember});
     case ComponentKind::UnresolvedProperty:
-    case ComponentKind::Property:
+    case ComponentKind::Member:
       // For a property, the choice is just given by the component.
       return getConstraintLocator(anchor, *componentElt);
     case ComponentKind::TupleElement:
@@ -5049,7 +5049,7 @@ ConstraintSystem::inferKeyPathLiteralCapability(KeyPathExpr *keyPath) {
       }
       LLVM_FALLTHROUGH;
     }
-    case KeyPathExpr::Component::Kind::Property:
+    case KeyPathExpr::Component::Kind::Member:
     case KeyPathExpr::Component::Kind::UnresolvedProperty: {
       auto *componentLoc =
           getConstraintLocator(keyPath, LocatorPathElt::KeyPathComponent(i));
