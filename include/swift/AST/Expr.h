@@ -5840,6 +5840,7 @@ public:
       UnresolvedApply,
       UnresolvedMember,
       UnresolvedSubscript,
+      Apply,
       Member,
       Subscript,
       OptionalForce,
@@ -5870,8 +5871,8 @@ public:
     Type ComponentType;
     SourceLoc Loc;
 
-    // Private constructor for unresolvedSubscript, subscript and
-    // unresolvedApply component.
+    // Private constructor for unresolvedSubscript, subscript,
+    // unresolvedApply and apply component.
     explicit Component(DeclNameOrRef decl, ArgumentList *argList,
                        ArrayRef<ProtocolConformanceRef> indexHashables,
                        Kind kind, Type type, SourceLoc loc);
@@ -5933,7 +5934,14 @@ public:
     static Component forUnresolvedOptionalChain(SourceLoc QuestionLoc) {
       return Component(Kind::OptionalChain, Type(), QuestionLoc);
     }
-    
+
+    /// Create a component for resolved application.
+    static Component forApply(ArgumentList *argList,
+                              ArrayRef<ProtocolConformanceRef> indexHashables) {
+      return Component({}, argList, indexHashables, Kind::Apply, Type(),
+                       argList->getLParenLoc());
+    };
+
     /// Create a component for a property.
     static Component forMember(ConcreteDeclRef property, Type propertyType,
                                SourceLoc loc) {
@@ -6014,6 +6022,7 @@ public:
       case Kind::OptionalWrap:
       case Kind::OptionalForce:
       case Kind::Member:
+      case Kind::Apply:
       case Kind::Identity:
       case Kind::TupleElement:
       case Kind::DictionaryKey:
@@ -6034,6 +6043,7 @@ public:
       case Kind::Subscript:
       case Kind::UnresolvedSubscript:
       case Kind::UnresolvedApply:
+      case Kind::Apply:
         return ArgList;
 
       case Kind::Invalid:
@@ -6059,6 +6069,7 @@ public:
     ArrayRef<ProtocolConformanceRef> getIndexHashableConformances() const {
       switch (getKind()) {
       case Kind::Subscript:
+      case Kind::Apply:
         if (!HashableConformancesData)
           return {};
         return {HashableConformancesData, ArgList->size()};
@@ -6093,6 +6104,7 @@ public:
       case Kind::OptionalWrap:
       case Kind::OptionalForce:
       case Kind::UnresolvedApply:
+      case Kind::Apply:
       case Kind::Member:
       case Kind::Identity:
       case Kind::TupleElement:
@@ -6112,6 +6124,7 @@ public:
       case Kind::UnresolvedMember:
       case Kind::UnresolvedSubscript:
       case Kind::UnresolvedApply:
+      case Kind::Apply:
       case Kind::OptionalChain:
       case Kind::OptionalWrap:
       case Kind::OptionalForce:
@@ -6134,6 +6147,7 @@ public:
       case Kind::UnresolvedMember:
       case Kind::UnresolvedSubscript:
       case Kind::UnresolvedApply:
+      case Kind::Apply:
       case Kind::OptionalChain:
       case Kind::OptionalWrap:
       case Kind::OptionalForce:
@@ -6155,6 +6169,7 @@ public:
         case Kind::UnresolvedMember:
         case Kind::UnresolvedSubscript:
         case Kind::UnresolvedApply:
+        case Kind::Apply:
         case Kind::OptionalChain:
         case Kind::OptionalWrap:
         case Kind::OptionalForce:
@@ -6185,6 +6200,7 @@ public:
       case Kind::DictionaryKey:
       case Kind::CodeCompletion:
       case Kind::UnresolvedApply:
+      case Kind::Apply:
         llvm_unreachable("no function ref kind for this kind");
       }
       llvm_unreachable("unhandled kind");

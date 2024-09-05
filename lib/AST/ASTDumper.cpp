@@ -3180,6 +3180,9 @@ public:
           case KeyPathExpr::Component::Kind::UnresolvedApply:
             printHead("unresolved_apply", ASTNodeColor);
             break;
+          case KeyPathExpr::Component::Kind::Apply:
+            printHead("apply", ASTNodeColor);
+            break;
           }
           printFieldQuoted(GetTypeOfKeyPathComponent(E, i), "type");
           if (auto *args = component.getArgs()) {
