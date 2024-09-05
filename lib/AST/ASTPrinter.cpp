@@ -5066,7 +5066,8 @@ void PrintAST::printKeyPathComponents(KeyPathExpr *expr, ArrayRef<KeyPathExpr::C
         case ComponentKind::CodeCompletion: {
           break;
         }
-        case ComponentKind::UnresolvedApply: {
+        case ComponentKind::UnresolvedApply:
+        case ComponentKind::Apply: {
           auto args = component.getArgs();
           printArgumentList(args, /*forSubscript*/ false);
           break;
