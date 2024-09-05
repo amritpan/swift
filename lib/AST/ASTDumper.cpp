@@ -3276,7 +3276,7 @@ public:
             break;
           }
           printFieldQuoted(GetTypeOfKeyPathComponent(E, i), "type");
-          if (auto *args = component.getSubscriptArgs()) {
+          if (auto *args = component.getArgs()) {
             printRec(args);
           }
           printFoot();
