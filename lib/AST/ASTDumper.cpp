@@ -3142,8 +3142,8 @@ public:
             printHead("optional_wrap", ASTNodeColor);
             break;
 
-          case KeyPathExpr::Component::Kind::Property:
-            printHead("property", ASTNodeColor);
+          case KeyPathExpr::Component::Kind::Member:
+            printHead("member", ASTNodeColor);
             printDeclRefField(component.getDeclRef(), "decl");
             break;
 
