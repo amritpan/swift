@@ -1182,6 +1182,49 @@ namespace {
       return outputTy;
     }
 
+    /// Add constraints for argument resolution for `UnresolvedApply` key path
+    /// component kind.
+    Type addApplyConstraints(
+        Expr *anchor, Type memberTy, ArgumentList *argList,
+        ConstraintLocator *applyComponentLoc,
+        SmallVectorImpl<TypeVariableType *> *addedTypeVars = nullptr) {
+      // Locators used in this expression.
+      if (applyComponentLoc == nullptr)
+        applyComponentLoc = CS.getConstraintLocator(anchor);
+
+      auto fnLocator = CS.getConstraintLocator(
+          applyComponentLoc, ConstraintLocator::ApplyFunction);
+
+      auto fnResultLocator = CS.getConstraintLocator(
+          applyComponentLoc, ConstraintLocator::FunctionResult);
+
+      CS.associateArgumentList(applyComponentLoc, argList);
+
+      Type outputTy = CS.createTypeVariable(
+          fnResultLocator, TVO_CanBindToLValue | TVO_CanBindToNoEscape);
+      if (addedTypeVars)
+        addedTypeVars->push_back(outputTy->castTo<TypeVariableType>());
+
+      SmallVector<AnyFunctionType::Param, 8> params;
+      getMatchingParams(argList, params);
+
+      // Add the constraint that the index expression's type be convertible
+      // to the input type of the subscript operator.
+      CS.addConstraint(ConstraintKind::ApplicableFunction,
+                       FunctionType::get(params, outputTy), memberTy,
+                       fnLocator);
+
+      Type fixedOutputType =
+          CS.getFixedTypeRecursive(outputTy, /*wantRValue=*/false);
+
+      if (!fixedOutputType->isTypeVariableOrMember()) {
+        CS.setFavoredType(anchor, fixedOutputType.getPointer());
+        outputTy = fixedOutputType;
+      }
+
+      return outputTy;
+    }
+
     Type openPackElement(Type packType, ConstraintLocator *locator,
                          PackExpansionExpr *packElementEnvironment) {
       if (!packElementEnvironment) {
@@ -3772,9 +3815,7 @@ namespace {
                                                            // needed
                   : component.getDeclRef().getDecl()->createNameRef();
 
-          auto refKind = lookupName.isSimpleName()
-            ? FunctionRefKind::Unapplied
-            : FunctionRefKind::Compound;
+          auto refKind = component.getFunctionRefKind();
           CS.addValueMemberConstraint(base, lookupName,
                                       memberTy,
                                       CurDC,
@@ -3809,6 +3850,13 @@ namespace {
             componentTypeVars.append(referencedVars.begin(),
                                      referencedVars.end());
           }
+          break;
+        }
+
+        case KeyPathExpr::Component::Kind::UnresolvedApply:
+        case KeyPathExpr::Component::Kind::Apply: {
+          base = addApplyConstraints(E, base, component.getArgs(),
+                                     memberLocator, &componentTypeVars);
           break;
         }
 
