@@ -4997,7 +4997,7 @@ void PrintAST::printKeyPathComponents(KeyPathExpr *expr, ArrayRef<KeyPathExpr::C
           break;
         }
         case ComponentKind::UnresolvedSubscript: {
-          auto args = component.getSubscriptArgs();
+          auto args = component.getArgs();
           printArgumentList(args, /*forSubscript*/ true);
           break;
         }
@@ -5006,7 +5006,7 @@ void PrintAST::printKeyPathComponents(KeyPathExpr *expr, ArrayRef<KeyPathExpr::C
           break;
         }
         case ComponentKind::Subscript: {
-          auto args = component.getSubscriptArgs();
+          auto args = component.getArgs();
           printArgumentList(args, /*forSubscript*/ true);
           break;
         }
