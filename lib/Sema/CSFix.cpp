@@ -1253,7 +1253,6 @@ bool AllowInvalidRefInKeyPath::diagnose(const Solution &solution,
     return failure.diagnose(asNote);
   }
 
-  case RefKind::Method:
   case RefKind::Initializer: {
     InvalidMethodRefInKeyPath failure(solution, Member, getLocator());
     return failure.diagnose(asNote);
@@ -1306,12 +1305,6 @@ AllowInvalidRefInKeyPath::forRef(ConstraintSystem &cs, Type baseType,
       return AllowInvalidRefInKeyPath::create(
           cs, baseType, RefKind::StaticMember, member, locator);
   }
-
-  // Referencing (instance or static) methods in key path is
-  // not currently allowed.
-  if (isa<FuncDecl>(member))
-    return AllowInvalidRefInKeyPath::create(cs, baseType, RefKind::Method,
-                                            member, locator);
 
   // Referencing enum cases in key path is not currently allowed.
   if (isa<EnumElementDecl>(member)) {
