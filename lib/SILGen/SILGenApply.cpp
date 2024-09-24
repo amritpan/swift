@@ -7067,17 +7067,16 @@ static void emitPseudoFunctionArguments(SILGenFunction &SGF,
   outVals.swap(argValues);
 }
 
-PreparedArguments
-SILGenFunction::prepareSubscriptIndices(SILLocation loc,
-                                        SubscriptDecl *subscript,
-                                        SubstitutionMap subs,
-                                        AccessStrategy strategy,
-                                        ArgumentList *argList) {
+PreparedArguments SILGenFunction::prepareMemberIndices(SILLocation loc,
+                                                       Type declInterfaceTy,
+                                                       SubstitutionMap subs,
+                                                       AccessStrategy strategy,
+                                                       ArgumentList *argList) {
   // TODO: use the real abstraction pattern from the accessor(s) in the
   // strategy.
   // Currently we use the substituted type so that we can reconstitute these
   // as RValues.
-  Type interfaceType = subscript->getInterfaceType();
+  Type interfaceType = declInterfaceTy;
 
   CanFunctionType substFnType;
   if (subs)
@@ -7725,36 +7724,39 @@ SILGenFunction::emitDynamicSubscriptGetterApply(SILLocation loc,
                 emitManagedRValueWithCleanup(optResult, optTL));
 }
 
-SmallVector<ManagedValue, 4> SILGenFunction::emitKeyPathSubscriptOperands(
-    SILLocation loc, SubscriptDecl *subscript,
-    SubstitutionMap subs, ArgumentList *argList) {
-  Type interfaceType = subscript->getInterfaceType();
-  CanFunctionType substFnType =
-      subs ? cast<FunctionType>(interfaceType->castTo<GenericFunctionType>()
-                                    ->substGenericArgs(subs)
-                                    ->getCanonicalType())
-           : cast<FunctionType>(interfaceType->getCanonicalType());
-  AbstractionPattern origFnType(substFnType);
-  auto fnType =
-      getLoweredType(origFnType, substFnType).castTo<SILFunctionType>()
-        ->getUnsubstitutedType(SGM.M);
-
+SmallVector<ManagedValue, 4>
+SILGenFunction::emitKeyPathMemberOperands(SILLocation loc, ValueDecl *decl,
+                                          SubstitutionMap subs,
+                                          ArgumentList *argList) {
   SmallVector<ManagedValue, 4> argValues;
-  SmallVector<DelayedArgument, 2> delayedArgs;
-  ArgEmitter emitter(*this, loc, fnType->getRepresentation(),
-                     /*yield*/ false,
-                     /*isForCoroutine*/ false,
-                     ClaimedParamsRef(fnType->getParameters()), argValues,
-                     delayedArgs, ForeignInfo{});
 
-  auto prepared =
-      prepareSubscriptIndices(loc, subscript, subs,
-                              // Strategy doesn't matter
-                              AccessStrategy::getStorage(), argList);
-  emitter.emitPreparedArgs(std::move(prepared), origFnType);
+  if (auto subscript = cast<SubscriptDecl>(decl)) {
+    Type interfaceType = subscript->getInterfaceType();
+    CanFunctionType substFnType =
+        subs ? cast<FunctionType>(interfaceType->castTo<GenericFunctionType>()
+                                      ->substGenericArgs(subs)
+                                      ->getCanonicalType())
+             : cast<FunctionType>(interfaceType->getCanonicalType());
+    AbstractionPattern origFnType(substFnType);
+    auto fnType = getLoweredType(origFnType, substFnType)
+                      .castTo<SILFunctionType>()
+                      ->getUnsubstitutedType(SGM.M);
 
-  if (!delayedArgs.empty())
-    emitDelayedArguments(*this, delayedArgs, argValues);
+    SmallVector<DelayedArgument, 2> delayedArgs;
+    ArgEmitter emitter(*this, loc, fnType->getRepresentation(),
+                       /*yield*/ false,
+                       /*isForCoroutine*/ false,
+                       ClaimedParamsRef(fnType->getParameters()), argValues,
+                       delayedArgs, ForeignInfo{});
+
+    auto prepared = prepareMemberIndices(loc, interfaceType, subs,
+                                         // Strategy doesn't matter
+                                         AccessStrategy::getStorage(), argList);
+    emitter.emitPreparedArgs(std::move(prepared), origFnType);
+
+    if (!delayedArgs.empty())
+      emitDelayedArguments(*this, delayedArgs, argValues);
+  }
 
   return argValues;
 }

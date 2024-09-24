@@ -4073,46 +4073,41 @@ getIdForKeyPathComponentComputedProperty(SILGenModule &SGM,
   llvm_unreachable("unhandled access strategy");
 }
 
-static void
-lowerKeyPathSubscriptIndexTypes(
-                 SILGenModule &SGM,
-                 SmallVectorImpl<IndexTypePair> &indexPatterns,
-                 SubscriptDecl *subscript,
-                 SubstitutionMap subscriptSubs,
-                 ResilienceExpansion expansion,
-                 bool &needsGenericContext) {
-  // Capturing an index value dependent on the generic context means we
-  // need the generic context captured in the key path.
-  auto subscriptSubstTy = subscript->getInterfaceType();
-  SubstitutionMap subMap;
-  auto sig = subscript->getGenericSignature();
-  if (sig) {
-    subscriptSubstTy = subscriptSubstTy.subst(subscriptSubs);
-  }
-  needsGenericContext |= subscriptSubstTy->hasArchetype();
-
-  for (auto *index : *subscript->getIndices()) {
-    auto indexTy = index->getInterfaceType();
+static void lowerKeyPathMemberIndexTypes(
+    SILGenModule &SGM, SmallVectorImpl<IndexTypePair> &indexPatterns,
+    ValueDecl *decl, SubstitutionMap subs, ResilienceExpansion expansion,
+    bool &needsGenericContext) {
+  if (auto subscript = dyn_cast<SubscriptDecl>(decl)) {
+    // Capturing an index value dependent on the generic context means we
+    // need the generic context captured in the key path.
+    auto subscriptSubstTy = subscript->getInterfaceType();
+    SubstitutionMap subMap;
+    auto sig = subscript->getGenericSignature();
     if (sig) {
-      indexTy = indexTy.subst(subscriptSubs);
+      subscriptSubstTy = subscriptSubstTy.subst(subs);
     }
+    needsGenericContext |= subscriptSubstTy->hasArchetype();
 
-    auto indexLoweredTy = SGM.Types.getLoweredType(
-        AbstractionPattern::getOpaque(), indexTy,
-        TypeExpansionContext::noOpaqueTypeArchetypesSubstitution(expansion));
-    indexLoweredTy = indexLoweredTy.mapTypeOutOfContext();
-    indexPatterns.push_back({indexTy->mapTypeOutOfContext()
-                                    ->getCanonicalType(),
-                             indexLoweredTy});
+    for (auto *index : *subscript->getIndices()) {
+      auto indexTy = index->getInterfaceType();
+      if (sig) {
+        indexTy = indexTy.subst(subs);
+      }
+
+      auto indexLoweredTy = SGM.Types.getLoweredType(
+          AbstractionPattern::getOpaque(), indexTy,
+          TypeExpansionContext::noOpaqueTypeArchetypesSubstitution(expansion));
+      indexLoweredTy = indexLoweredTy.mapTypeOutOfContext();
+      indexPatterns.push_back(
+          {indexTy->mapTypeOutOfContext()->getCanonicalType(), indexLoweredTy});
+    }
   }
 }
 
-static void
-lowerKeyPathSubscriptIndexPatterns(
-                 SmallVectorImpl<KeyPathPatternComponent::Index> &indexPatterns,
-                 ArrayRef<IndexTypePair> indexTypes,
-                 ArrayRef<ProtocolConformanceRef> indexHashables,
-                 unsigned &baseOperand) {
+static void lowerKeyPathMemberIndexPatterns(
+    SmallVectorImpl<KeyPathPatternComponent::Index> &indexPatterns,
+    ArrayRef<IndexTypePair> indexTypes,
+    ArrayRef<ProtocolConformanceRef> indexHashables, unsigned &baseOperand) {
   for (unsigned i : indices(indexTypes)) {
     CanType formalTy;
     SILType loweredTy;
@@ -4125,263 +4120,237 @@ lowerKeyPathSubscriptIndexPatterns(
   }
 }
 
-KeyPathPatternComponent
-SILGenModule::emitKeyPathComponentForDecl(SILLocation loc,
-                                GenericEnvironment *genericEnv,
-                                ResilienceExpansion expansion,
-                                unsigned &baseOperand,
-                                bool &needsGenericContext,
-                                SubstitutionMap subs,
-                                AbstractStorageDecl *storage,
-                                ArrayRef<ProtocolConformanceRef> indexHashables,
-                                CanType baseTy,
-                                DeclContext *useDC,
-                                bool forPropertyDescriptor) {
-  auto baseDecl = storage;
+KeyPathPatternComponent SILGenModule::emitKeyPathComponentForDecl(
+    SILLocation loc, GenericEnvironment *genericEnv,
+    ResilienceExpansion expansion, unsigned &baseOperand,
+    bool &needsGenericContext, SubstitutionMap subs, ValueDecl *decl,
+    ArrayRef<ProtocolConformanceRef> indexHashables, CanType baseTy,
+    DeclContext *useDC, bool forPropertyDescriptor) {
 
-  // ABI-compatible overrides do not have property descriptors, so we need
-  // to reference the overridden declaration instead.
-  if (isa<ClassDecl>(baseDecl->getDeclContext())) {
-    while (!baseDecl->isValidKeyPathComponent())
-      baseDecl = baseDecl->getOverriddenDecl();
-  }
-
-  /// Returns true if a key path component for the given property or
-  /// subscript should be externally referenced.
-  auto shouldUseExternalKeyPathComponent = [&]() -> bool {
-    // The property descriptor has the canonical key path component information
-    // so doesn't have to refer to another external descriptor.
-    if (forPropertyDescriptor) {
-      return false;
-    }
-    
-    // Don't need to use the external component if we're inside the resilience
-    // domain of its defining module.
-    if (baseDecl->getModuleContext() == SwiftModule
-        && !baseDecl->isResilient(SwiftModule, expansion)) {
-      return false;
-    }
-
-    // Protocol requirements don't have nor need property descriptors.
-    if (isa<ProtocolDecl>(baseDecl->getDeclContext())) {
-      return false;
-    }
-    
-    // Always-emit-into-client properties can't reliably refer to a property
-    // descriptor that may not exist in older versions of their home dylib.
-    // Their definition is also always entirely visible to clients so it isn't
-    // needed.
-    if (baseDecl->getAttrs().hasAttribute<AlwaysEmitIntoClientAttr>()) {
-      return false;
-    }
-
-    // Back deployed properties have the same restrictions as
-    // always-emit-into-client properties.
-    if (requiresBackDeploymentThunk(baseDecl, expansion)) {
-      return false;
-    }
-
-    // Properties that only dispatch via ObjC lookup do not have nor
-    // need property descriptors, since the selector identifies the
-    // storage.
-    // Properties that are not public don't need property descriptors
-    // either.
-    if (baseDecl->requiresOpaqueAccessors()) {
-      auto representative = getAccessorDeclRef(
-          getRepresentativeAccessorForKeyPath(baseDecl), expansion);
-      if (representative.isForeign)
-        return false;
-
-      switch (representative.getLinkage(ForDefinition)) {
-      case SILLinkage::Public:
-      case SILLinkage::PublicNonABI:
-      case SILLinkage::Package:
-      case SILLinkage::PackageNonABI:
-        break;
-      case SILLinkage::Hidden:
-      case SILLinkage::Shared:
-      case SILLinkage::Private:
-      case SILLinkage::PublicExternal:
-      case SILLinkage::PackageExternal:
-      case SILLinkage::HiddenExternal:
-        return false;
-      }
-    }
-    
-    return true;
-  };
-
-  auto strategy = storage->getAccessStrategy(AccessSemantics::Ordinary,
-                                             storage->supportsMutation()
-                                               ? AccessKind::ReadWrite
-                                               : AccessKind::Read,
-                                             M.getSwiftModule(),
-                                             expansion);
-
-  AbstractStorageDecl *externalDecl = nullptr;
-  SubstitutionMap externalSubs;
-  
-  if (shouldUseExternalKeyPathComponent()) {
-    externalDecl = storage;
-    // Map the substitutions out of context.
-    if (!subs.empty()) {
-      externalSubs = subs;
-      // If any of the substitutions involve primary archetypes, then the
-      // key path pattern needs to capture the generic context, and we need
-      // to map the pattern substitutions out of this context.
-      if (externalSubs.getRecursiveProperties().hasArchetype()) {
-        needsGenericContext = true;
-        // FIXME: This doesn't do anything for local archetypes!
-        externalSubs = externalSubs.mapReplacementTypesOutOfContext();
-      }
-    }
+  if (auto *storage = dyn_cast<AbstractStorageDecl>(decl)) {
+    auto baseDecl = storage;
 
     // ABI-compatible overrides do not have property descriptors, so we need
     // to reference the overridden declaration instead.
-    if (baseDecl != externalDecl) {
-      externalSubs = SubstitutionMap::getOverrideSubstitutions(baseDecl,
-                                                               externalDecl)
-          .subst(externalSubs);
-      externalDecl = baseDecl;
-    }
-  }
-  
-  auto isSettableInComponent = [&]() -> bool {
-    // For storage we reference by a property descriptor, the descriptor will
-    // supply the settability if needed. We only reference it here if the
-    // setter is public.
-    if (shouldUseExternalKeyPathComponent())
-      return storage->isSettableInSwift(useDC) &&
-             storage->isSetterAccessibleFrom(useDC);
-    return storage->isSettableInSwift(storage->getDeclContext());
-  };
-
-  if (auto var = dyn_cast<VarDecl>(storage)) {
-    CanType componentTy;
-    if (!var->getDeclContext()->isTypeContext()) {
-      componentTy = var->getInterfaceType()->getCanonicalType();
-    } else if (var->getDeclContext()->getSelfProtocolDecl() &&
-               baseTy->isExistentialType()) {
-      componentTy = var->getValueInterfaceType()->getCanonicalType();
-      ASSERT(!componentTy->hasTypeParameter());
-    } else {
-      // The mapTypeIntoContext() / mapTypeOutOfContext() dance is there
-      // to handle the case where baseTy being a type parameter subject
-      // to a superclass requirement.
-      componentTy = var->getValueInterfaceType().subst(
-        GenericEnvironment::mapTypeIntoContext(genericEnv, baseTy)
-          ->getContextSubstitutionMap(var->getDeclContext()))
-          ->mapTypeOutOfContext()
-          ->getCanonicalType();
+    if (isa<ClassDecl>(baseDecl->getDeclContext())) {
+      while (!baseDecl->isValidKeyPathComponent())
+        baseDecl = baseDecl->getOverriddenDecl();
     }
 
-    // The component type for an @objc optional requirement needs to be
-    // wrapped in an optional.
-    if (var->getAttrs().hasAttribute<OptionalAttr>()) {
-      componentTy = OptionalType::get(componentTy)->getCanonicalType();
-    }
-  
-    if (canStorageUseStoredKeyPathComponent(var, expansion)) {
-      return KeyPathPatternComponent::forStoredProperty(var, componentTy);
+    /// Returns true if a key path component for the given property or
+    /// subscript should be externally referenced.
+    auto shouldUseExternalKeyPathComponent = [&]() -> bool {
+      // The property descriptor has the canonical key path component
+      // information so doesn't have to refer to another external descriptor.
+      if (forPropertyDescriptor) {
+        return false;
+      }
+
+      // Don't need to use the external component if we're inside the resilience
+      // domain of its defining module.
+      if (baseDecl->getModuleContext() == SwiftModule &&
+          !baseDecl->isResilient(SwiftModule, expansion)) {
+        return false;
+      }
+
+      // Protocol requirements don't have nor need property descriptors.
+      if (isa<ProtocolDecl>(baseDecl->getDeclContext())) {
+        return false;
+      }
+
+      // Always-emit-into-client properties can't reliably refer to a property
+      // descriptor that may not exist in older versions of their home dylib.
+      // Their definition is also always entirely visible to clients so it isn't
+      // needed.
+      if (baseDecl->getAttrs().hasAttribute<AlwaysEmitIntoClientAttr>()) {
+        return false;
+      }
+
+      // Back deployed properties have the same restrictions as
+      // always-emit-into-client properties.
+      if (requiresBackDeploymentThunk(baseDecl, expansion)) {
+        return false;
+      }
+
+      // Properties that only dispatch via ObjC lookup do not have nor
+      // need property descriptors, since the selector identifies the
+      // storage.
+      // Properties that are not public don't need property descriptors
+      // either.
+      if (baseDecl->requiresOpaqueAccessors()) {
+        auto representative = getAccessorDeclRef(
+            getRepresentativeAccessorForKeyPath(baseDecl), expansion);
+        if (representative.isForeign)
+          return false;
+
+        switch (representative.getLinkage(ForDefinition)) {
+        case SILLinkage::Public:
+        case SILLinkage::PublicNonABI:
+        case SILLinkage::Package:
+        case SILLinkage::PackageNonABI:
+          break;
+        case SILLinkage::Hidden:
+        case SILLinkage::Shared:
+        case SILLinkage::Private:
+        case SILLinkage::PublicExternal:
+        case SILLinkage::PackageExternal:
+        case SILLinkage::HiddenExternal:
+          return false;
+        }
+      }
+
+      return true;
+    };
+
+    auto strategy = storage->getAccessStrategy(
+        AccessSemantics::Ordinary,
+        storage->supportsMutation() ? AccessKind::ReadWrite : AccessKind::Read,
+        M.getSwiftModule(), expansion);
+
+    AbstractStorageDecl *externalDecl = nullptr;
+    SubstitutionMap externalSubs;
+
+    if (shouldUseExternalKeyPathComponent()) {
+      externalDecl = storage;
+      // Map the substitutions out of context.
+      if (!subs.empty()) {
+        externalSubs = subs;
+        // If any of the substitutions involve primary archetypes, then the
+        // key path pattern needs to capture the generic context, and we need
+        // to map the pattern substitutions out of this context.
+        if (externalSubs.getRecursiveProperties().hasArchetype()) {
+          needsGenericContext = true;
+          // FIXME: This doesn't do anything for local archetypes!
+          externalSubs = externalSubs.mapReplacementTypesOutOfContext();
+        }
+      }
+
+      // ABI-compatible overrides do not have property descriptors, so we need
+      // to reference the overridden declaration instead.
+      if (baseDecl != externalDecl) {
+        externalSubs =
+            SubstitutionMap::getOverrideSubstitutions(baseDecl, externalDecl)
+                .subst(externalSubs);
+        externalDecl = baseDecl;
+      }
     }
 
-    // We need thunks to bring the getter and setter to the right signature
-    // expected by the key path runtime.
-    auto id = getIdForKeyPathComponentComputedProperty(*this, var, expansion,
-                                                       strategy);
-    auto getter = getOrCreateKeyPathGetter(*this,
-             var, subs,
-             needsGenericContext ? genericEnv : nullptr,
-             expansion, {}, baseTy, componentTy);
-    
-    if (isSettableInComponent()) {
-      auto setter = getOrCreateKeyPathSetter(*this,
-             var, subs,
-             needsGenericContext ? genericEnv : nullptr,
-             expansion, {}, baseTy, componentTy);
-      return KeyPathPatternComponent::forComputedSettableProperty(id,
-          getter, setter, {}, nullptr, nullptr,
-          externalDecl, externalSubs, componentTy);
-    } else {
-      return KeyPathPatternComponent::forComputedGettableProperty(id,
-          getter, {}, nullptr, nullptr,
-          externalDecl, externalSubs, componentTy);
-    }
-  }
-  
-  if (auto decl = dyn_cast<SubscriptDecl>(storage)) {
-    auto baseSubscriptTy =
-      decl->getInterfaceType()->castTo<AnyFunctionType>();
-    if (auto genSubscriptTy = baseSubscriptTy->getAs<GenericFunctionType>())
-      baseSubscriptTy = genSubscriptTy->substGenericArgs(subs);
-    auto baseSubscriptInterfaceTy = cast<AnyFunctionType>(
-      baseSubscriptTy->mapTypeOutOfContext()->getCanonicalType());
+    auto isSettableInComponent = [&]() -> bool {
+      // For storage we reference by a property descriptor, the descriptor will
+      // supply the settability if needed. We only reference it here if the
+      // setter is public.
+      if (shouldUseExternalKeyPathComponent())
+        return storage->isSettableInSwift(useDC) &&
+               storage->isSetterAccessibleFrom(useDC);
+      return storage->isSettableInSwift(storage->getDeclContext());
+    };
 
-    auto componentTy = baseSubscriptInterfaceTy.getResult();
-    if (decl->getAttrs().hasAttribute<OptionalAttr>()) {
+    if (auto var = dyn_cast<VarDecl>(storage)) {
+      CanType componentTy;
+      if (!var->getDeclContext()->isTypeContext()) {
+        componentTy = var->getInterfaceType()->getCanonicalType();
+      } else if (var->getDeclContext()->getSelfProtocolDecl() &&
+                 baseTy->isExistentialType()) {
+        componentTy = var->getValueInterfaceType()->getCanonicalType();
+        ASSERT(!componentTy->hasTypeParameter());
+      } else {
+        // The mapTypeIntoContext() / mapTypeOutOfContext() dance is there
+        // to handle the case where baseTy being a type parameter subject
+        // to a superclass requirement.
+        componentTy =
+            var->getValueInterfaceType()
+                .subst(
+                    GenericEnvironment::mapTypeIntoContext(genericEnv, baseTy)
+                        ->getContextSubstitutionMap(var->getDeclContext()))
+                ->mapTypeOutOfContext()
+                ->getCanonicalType();
+      }
+
       // The component type for an @objc optional requirement needs to be
-      // wrapped in an optional
-      componentTy = OptionalType::get(componentTy)->getCanonicalType();
+      // wrapped in an optional.
+      if (var->getAttrs().hasAttribute<OptionalAttr>()) {
+        componentTy = OptionalType::get(componentTy)->getCanonicalType();
+      }
+
+      if (canStorageUseStoredKeyPathComponent(var, expansion)) {
+        return KeyPathPatternComponent::forStoredProperty(var, componentTy);
+      }
+
+      // We need thunks to bring the getter and setter to the right signature
+      // expected by the key path runtime.
+      auto id = getIdForKeyPathComponentComputedProperty(*this, var, expansion,
+                                                         strategy);
+      auto getter = getOrCreateKeyPathGetter(
+          *this, var, subs, needsGenericContext ? genericEnv : nullptr,
+          expansion, {}, baseTy, componentTy);
+
+      if (isSettableInComponent()) {
+        auto setter = getOrCreateKeyPathSetter(
+            *this, var, subs, needsGenericContext ? genericEnv : nullptr,
+            expansion, {}, baseTy, componentTy);
+        return KeyPathPatternComponent::forComputedSettableProperty(
+            id, getter, setter, {}, nullptr, nullptr, externalDecl,
+            externalSubs, componentTy);
+      } else {
+        return KeyPathPatternComponent::forComputedGettableProperty(
+            id, getter, {}, nullptr, nullptr, externalDecl, externalSubs,
+            componentTy);
+      }
     }
 
-    SmallVector<IndexTypePair, 4> indexTypes;
-    lowerKeyPathSubscriptIndexTypes(*this, indexTypes,
-                                    decl, subs,
-                                    expansion,
-                                    needsGenericContext);
-    
-    SmallVector<KeyPathPatternComponent::Index, 4> indexPatterns;
-    SILFunction *indexEquals = nullptr, *indexHash = nullptr;
-    // Property descriptors get their index information from the client.
-    if (!forPropertyDescriptor) {
-      lowerKeyPathSubscriptIndexPatterns(indexPatterns,
-                                         indexTypes, indexHashables,
-                                         baseOperand);
-      
-      getOrCreateKeyPathEqualsAndHash(*this, loc,
-               needsGenericContext ? genericEnv : nullptr,
-               expansion,
-               indexPatterns,
-               indexEquals, indexHash);
-    }
+    if (auto decl = dyn_cast<SubscriptDecl>(storage)) {
+      auto baseSubscriptTy =
+          decl->getInterfaceType()->castTo<AnyFunctionType>();
+      if (auto genSubscriptTy = baseSubscriptTy->getAs<GenericFunctionType>())
+        baseSubscriptTy = genSubscriptTy->substGenericArgs(subs);
+      auto baseSubscriptInterfaceTy = cast<AnyFunctionType>(
+          baseSubscriptTy->mapTypeOutOfContext()->getCanonicalType());
 
-    auto id = getIdForKeyPathComponentComputedProperty(*this, decl, expansion,
-                                                       strategy);
-    auto getter = getOrCreateKeyPathGetter(*this,
-             decl, subs,
-             needsGenericContext ? genericEnv : nullptr,
-             expansion,
-             indexTypes,
-             baseTy, componentTy);
-  
-    auto indexPatternsCopy = getASTContext().AllocateCopy(indexPatterns);
-    if (isSettableInComponent()) {
-      auto setter = getOrCreateKeyPathSetter(*this,
-             decl, subs,
-             needsGenericContext ? genericEnv : nullptr,
-             expansion,
-             indexTypes,
-             baseTy, componentTy);
-      return KeyPathPatternComponent::forComputedSettableProperty(id,
-                                                           getter, setter,
-                                                           indexPatternsCopy,
-                                                           indexEquals,
-                                                           indexHash,
-                                                           externalDecl,
-                                                           externalSubs,
-                                                           componentTy);
-    } else {
-      return KeyPathPatternComponent::forComputedGettableProperty(id,
-                                                           getter,
-                                                           indexPatternsCopy,
-                                                           indexEquals,
-                                                           indexHash,
-                                                           externalDecl,
-                                                           externalSubs,
-                                                           componentTy);
+      auto componentTy = baseSubscriptInterfaceTy.getResult();
+      if (decl->getAttrs().hasAttribute<OptionalAttr>()) {
+        // The component type for an @objc optional requirement needs to be
+        // wrapped in an optional
+        componentTy = OptionalType::get(componentTy)->getCanonicalType();
+      }
+
+      SmallVector<IndexTypePair, 4> indexTypes;
+      lowerKeyPathMemberIndexTypes(*this, indexTypes, decl, subs, expansion,
+                                   needsGenericContext);
+
+      SmallVector<KeyPathPatternComponent::Index, 4> indexPatterns;
+      SILFunction *indexEquals = nullptr, *indexHash = nullptr;
+      // Property descriptors get their index information from the client.
+      if (!forPropertyDescriptor) {
+        lowerKeyPathMemberIndexPatterns(indexPatterns, indexTypes,
+                                        indexHashables, baseOperand);
+
+        getOrCreateKeyPathEqualsAndHash(
+            *this, loc, needsGenericContext ? genericEnv : nullptr, expansion,
+            indexPatterns, indexEquals, indexHash);
+      }
+
+      auto id = getIdForKeyPathComponentComputedProperty(*this, decl, expansion,
+                                                         strategy);
+      auto getter = getOrCreateKeyPathGetter(
+          *this, decl, subs, needsGenericContext ? genericEnv : nullptr,
+          expansion, indexTypes, baseTy, componentTy);
+
+      auto indexPatternsCopy = getASTContext().AllocateCopy(indexPatterns);
+      if (isSettableInComponent()) {
+        auto setter = getOrCreateKeyPathSetter(
+            *this, decl, subs, needsGenericContext ? genericEnv : nullptr,
+            expansion, indexTypes, baseTy, componentTy);
+        return KeyPathPatternComponent::forComputedSettableProperty(
+            id, getter, setter, indexPatternsCopy, indexEquals, indexHash,
+            externalDecl, externalSubs, componentTy);
+      } else {
+        return KeyPathPatternComponent::forComputedGettableProperty(
+            id, getter, indexPatternsCopy, indexEquals, indexHash, externalDecl,
+            externalSubs, componentTy);
+      }
     }
   }
-  
+
   llvm_unreachable("unknown kind of storage");
 }
 
@@ -4410,7 +4379,7 @@ RValue RValueEmitter::visitKeyPathExpr(KeyPathExpr *E, SGFContext C) {
     switch (auto kind = component.getKind()) {
     case KeyPathExpr::Component::Kind::Member:
     case KeyPathExpr::Component::Kind::Subscript: {
-      auto decl = cast<AbstractStorageDecl>(component.getDeclRef().getDecl());
+      auto decl = component.getDeclRef().getDecl();
 
       unsigned numOperands = operands.size();
       loweredComponents.push_back(SGF.SGM.emitKeyPathComponentForDecl(
@@ -4423,10 +4392,15 @@ RValue RValueEmitter::visitKeyPathExpr(KeyPathExpr *E, SGFContext C) {
       if (kind == KeyPathExpr::Component::Kind::Member)
         break;
 
-      auto subscript = cast<SubscriptDecl>(decl);
-      auto loweredArgs = SGF.emitKeyPathSubscriptOperands(
-          E, subscript, component.getDeclRef().getSubstitutions(),
-          component.getArgs());
+      auto args = component.getArgs();
+      if (auto func = cast<AbstractFuncDecl>(decl)) {
+        // If Component::Kind::Member is a method member, get args from Apply
+        // component which immediately follows current component.
+        args = components[i + 1].getArgs;
+      }
+
+      auto loweredArgs = SGF.emitKeyPathMemberOperands(
+          E, decl, component.getDeclRef().getSubstitutions(), args);
 
       for (auto &arg : loweredArgs) {
         operands.push_back(arg.forward(SGF));
