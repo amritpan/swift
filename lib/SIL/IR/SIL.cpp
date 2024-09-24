@@ -453,3 +453,44 @@ bool AbstractStorageDecl::exportsPropertyDescriptor() const {
 
   return true;
 }
+
+// bool AbstractFunctionDecl::exportsPropertyDescriptor() const {
+//   // The storage needs a descriptor if it sits at a module's ABI boundary,
+//   // meaning it has public linkage.
+//
+//   // If the storage is an ABI-compatible override of another declaration,
+//   we're
+//   // not going to be emitting a property descriptor either.
+//   if (!isValidKeyPathComponent())
+//     return false;
+//
+//   // Fucntions with inout arguments (FIXME)and reabstracted arguments(/FIXME)
+//   // don't have descriptors either.
+//   if (auto func = dyn_cast<FuncDecl>(this)) {
+//     for (auto *param : *func->getParameters()) {
+//       // Keypaths can't capture inout indices.
+//       if (param->isInOut())
+//         return false;
+//
+//       auto paramTy = param->getInterfaceType()->getReducedType(
+//           sub->getGenericSignatureOfContext());
+//
+//       // TODO: Handle reabstraction and tuple explosion in thunk generation.
+//       // This wasn't previously a concern because anything that was Hashable
+//       // had only one abstraction level and no explosion.
+//
+//       if (isa<TupleType>(paramTy))
+//         return false;
+//
+//       auto paramObjTy = paramTy;
+//       if (auto objTy = paramObjTy.getOptionalObjectType())
+//         paramObjTy = objTy;
+//
+//       if (isa<AnyFunctionType>(paramObjTy) ||
+//       isa<AnyMetatypeType>(paramObjTy))
+//         return false;
+//     }
+//   }
+//
+//   return true;
+// }

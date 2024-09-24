@@ -821,6 +821,8 @@ SILSerializer::writeKeyPathPatternComponent(
   };
   auto handleComputedId = [&](KeyPathPatternComponent::ComputedPropertyId id) {
     switch (id.getKind()) {
+    case KeyPathPatternComponent::ComputedPropertyId::FunctionDecl:
+      break;
     case KeyPathPatternComponent::ComputedPropertyId::Property:
       ListOfValues.push_back(
         (unsigned)KeyPathComputedComponentIdKindEncoding::Property);

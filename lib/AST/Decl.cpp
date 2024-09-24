@@ -10118,6 +10118,59 @@ AbstractFunctionDecl::getLifetimeDependencies() const {
       std::nullopt);
 }
 
+bool AbstractFunctionDecl::isValidKeyPathComponent() const {
+  // Check whether we're an ABI compatible override of another property. If we
+  // are, then the key path should refer to the base decl instead.
+  auto &ctx = getASTContext();
+  auto isABICompatibleOverride = evaluateOrDefault(
+      ctx.evaluator,
+      IsABICompatibleOverrideRequest{const_cast<AbstractFunctionDecl *>(this)},
+      false);
+  return !isABICompatibleOverride;
+}
+
+bool AbstractFunctionDecl::isResilient() const {
+  // Check for an explicit @_fixed_layout attribute.
+  if (getAttrs().hasAttribute<FixedLayoutAttr>())
+    return false;
+
+  // If we're an instance property of a nominal type, query the type.
+  if (!isStatic())
+    if (auto *nominalDecl = getDeclContext()->getSelfNominalTypeDecl())
+      return nominalDecl->isResilient();
+
+  // Non-public global and static variables always have a
+  // fixed layout.
+  auto accessScope =
+      getFormalAccessScope(/*useDC=*/nullptr,
+                           /*treatUsableFromInlineAsPublic=*/true);
+  if (!accessScope.isPublicOrPackage())
+    return false;
+
+  return getModuleContext()->isResilient();
+}
+
+bool AbstractFunctionDecl::isResilient(ModuleDecl *M,
+                                       ResilienceExpansion expansion) const {
+  switch (expansion) {
+  case ResilienceExpansion::Minimal:
+    return isResilient();
+  case ResilienceExpansion::Maximal:
+    if (M == getModuleContext())
+      return false;
+    return isResilient();
+  }
+  llvm_unreachable("bad resilience expansion");
+}
+
+bool AbstractFunctionDecl::requiresOpaqueAccessors() const {
+  auto *var = dyn_cast<VarDecl>(this);
+  ASTContext &ctx = getASTContext();
+  return evaluateOrDefault(
+      ctx.evaluator, RequiresOpaqueAccessorsRequest{const_cast<VarDecl *>(var)},
+      false);
+}
+
 void FuncDecl::setResultInterfaceType(Type type) {
   getASTContext().evaluator.cacheOutput(ResultTypeRequest{this},
                                         std::move(type));

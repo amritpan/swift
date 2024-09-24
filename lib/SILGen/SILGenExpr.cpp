@@ -4101,6 +4101,30 @@ static void lowerKeyPathMemberIndexTypes(
       indexPatterns.push_back(
           {indexTy->mapTypeOutOfContext()->getCanonicalType(), indexLoweredTy});
     }
+  } else if (auto func = dyn_cast<FuncDecl>(decl)) {
+    // Capturing an index value dependent on the generic context means we
+    // need the generic context captured in the key path.
+    auto funcSubstTy = func->getInterfaceType();
+    SubstitutionMap subMap;
+    auto sig = func->getGenericSignature();
+    if (sig) {
+      funcSubstTy = funcSubstTy.subst(subs);
+    }
+    needsGenericContext |= funcSubstTy->hasArchetype();
+
+    for (auto *param : *func->getParameters()) {
+      auto paramTy = param->getInterfaceType();
+      if (sig) {
+        paramTy = paramTy.subst(subs);
+      }
+
+      auto paramLoweredTy = SGM.Types.getLoweredType(
+          AbstractionPattern::getOpaque(), paramTy,
+          TypeExpansionContext::noOpaqueTypeArchetypesSubstitution(expansion));
+      paramLoweredTy = paramLoweredTy.mapTypeOutOfContext();
+      indexPatterns.push_back(
+          {paramTy->mapTypeOutOfContext()->getCanonicalType(), paramLoweredTy});
+    }
   }
 }
 
@@ -4127,7 +4151,140 @@ KeyPathPatternComponent SILGenModule::emitKeyPathComponentForDecl(
     ArrayRef<ProtocolConformanceRef> indexHashables, CanType baseTy,
     DeclContext *useDC, bool forPropertyDescriptor) {
 
-  if (auto *storage = dyn_cast<AbstractStorageDecl>(decl)) {
+  if (auto *storage = dyn_cast<AbstractFunctionDecl>(decl)) {
+    auto baseDecl = storage;
+
+    // ABI-compatible overrides do not have property descriptors, so we need
+    // to reference the overridden declaration instead.
+    if (isa<ClassDecl>(baseDecl->getDeclContext())) {
+      while (!baseDecl->isValidKeyPathComponent())
+        baseDecl = baseDecl->getOverriddenDecl();
+    }
+
+    /// Returns true if a key path component for the given function should be
+    /// externally referenced.
+    auto shouldUseExternalKeyPathComponent = [&]() -> bool {
+      // The property descriptor has the canonical key path component
+      // information so doesn't have to refer to another external descriptor.
+      if (forPropertyDescriptor) {
+        return false;
+      }
+
+      // Don't need to use the external component if we're inside the resilience
+      // domain of its defining module.
+      if (baseDecl->getModuleContext() == SwiftModule &&
+          !baseDecl->isResilient(SwiftModule, expansion)) {
+        return false;
+      }
+
+      // Protocol requirements don't have nor need property descriptors.
+      if (isa<ProtocolDecl>(baseDecl->getDeclContext())) {
+        return false;
+      }
+
+      // Always-emit-into-client properties can't reliably refer to a property
+      // descriptor that may not exist in older versions of their home dylib.
+      // Their definition is also always entirely visible to clients so it isn't
+      // needed.
+      if (baseDecl->getAttrs().hasAttribute<AlwaysEmitIntoClientAttr>()) {
+        return false;
+      }
+
+      // Back deployed properties have the same restrictions as
+      // always-emit-into-client properties.
+      if (requiresBackDeploymentThunk(baseDecl, expansion)) {
+        return false;
+      }
+
+      // Properties that only dispatch via ObjC lookup do not have nor
+      // need property descriptors, since the selector identifies the
+      // storage.
+      // Properties that are not public don't need property descriptors
+      // either.
+      if (baseDecl->requiresOpaqueAccessors()) {
+        auto representative = getFuncDeclRef(baseDecl, expansion);
+        if (representative.isForeign)
+          return false;
+
+        switch (representative.getLinkage(ForDefinition)) {
+        case SILLinkage::Public:
+        case SILLinkage::PublicNonABI:
+        case SILLinkage::Package:
+        case SILLinkage::PackageNonABI:
+          break;
+        case SILLinkage::Hidden:
+        case SILLinkage::Shared:
+        case SILLinkage::Private:
+        case SILLinkage::PublicExternal:
+        case SILLinkage::PackageExternal:
+        case SILLinkage::HiddenExternal:
+          return false;
+        }
+      }
+
+      return true;
+    };
+
+    AbstractFunctionDecl *externalDecl = nullptr;
+    SubstitutionMap externalSubs;
+
+    if (shouldUseExternalKeyPathComponent()) {
+      externalDecl = storage;
+      // Map the substitutions out of context.
+      if (!subs.empty()) {
+        externalSubs = subs;
+        // If any of the substitutions involve primary archetypes, then the
+        // key path pattern needs to capture the generic context, and we need
+        // to map the pattern substitutions out of this context.
+        if (externalSubs.getRecursiveProperties().hasArchetype()) {
+          needsGenericContext = true;
+          // FIXME: This doesn't do anything for local archetypes!
+          externalSubs = externalSubs.mapReplacementTypesOutOfContext();
+        }
+      }
+
+      // ABI-compatible overrides do not have property descriptors, so we need
+      // to reference the overridden declaration instead.
+      if (baseDecl != externalDecl) {
+        externalSubs =
+            SubstitutionMap::getOverrideSubstitutions(baseDecl, externalDecl)
+                .subst(externalSubs);
+        externalDecl = baseDecl;
+      }
+    }
+
+    if (auto decl = dyn_cast<FuncDecl>(storage)) {
+      auto baseFuncTy = decl->getInterfaceType()->castTo<AnyFunctionType>();
+      if (auto genFuncTy = baseFuncTy->getAs<GenericFunctionType>())
+        baseFuncTy = genFuncTy->substGenericArgs(subs);
+      auto baseFuncInterfaceTy = cast<AnyFunctionType>(
+          baseFuncTy->mapTypeOutOfContext()->getCanonicalType());
+
+      auto componentTy = baseFuncInterfaceTy.getResult();
+      if (decl->getAttrs().hasAttribute<OptionalAttr>()) {
+        // The component type for an @objc optional requirement needs to be
+        // wrapped in an optional
+        componentTy = OptionalType::get(componentTy)->getCanonicalType();
+      }
+
+      SmallVector<IndexTypePair, 4> indexTypes;
+      lowerKeyPathMemberIndexTypes(*this, indexTypes, decl, subs, expansion,
+                                   needsGenericContext);
+
+      SmallVector<KeyPathPatternComponent::Index, 4> indexPatterns;
+      SILFunction *indexEquals = nullptr, *indexHash = nullptr;
+      // Property descriptors get their index information from the client.
+      if (!forPropertyDescriptor) {
+        lowerKeyPathMemberIndexPatterns(indexPatterns, indexTypes,
+                                        indexHashables, baseOperand);
+
+        getOrCreateKeyPathEqualsAndHash(
+            *this, loc, needsGenericContext ? genericEnv : nullptr, expansion,
+            indexPatterns, indexEquals, indexHash);
+      }
+    }
+
+  } else if (auto *storage = dyn_cast<AbstractStorageDecl>(decl)) {
     auto baseDecl = storage;
 
     // ABI-compatible overrides do not have property descriptors, so we need
@@ -4349,9 +4506,9 @@ KeyPathPatternComponent SILGenModule::emitKeyPathComponentForDecl(
             externalSubs, componentTy);
       }
     }
-  }
 
-  llvm_unreachable("unknown kind of storage");
+    llvm_unreachable("unknown kind of storage");
+  }
 }
 
 RValue RValueEmitter::visitKeyPathExpr(KeyPathExpr *E, SGFContext C) {
@@ -4375,7 +4532,10 @@ RValue RValueEmitter::visitKeyPathExpr(KeyPathExpr *E, SGFContext C) {
   auto baseTy = rootTy;
   SmallVector<SILValue, 4> operands;
 
-  for (auto &component : E->getComponents()) {
+  auto components = E->getComponents();
+  for (size_t i = 0; i <= components.size(); ++i) {
+    auto &component = components[i];
+
     switch (auto kind = component.getKind()) {
     case KeyPathExpr::Component::Kind::Member:
     case KeyPathExpr::Component::Kind::Subscript: {
@@ -4386,17 +4546,19 @@ RValue RValueEmitter::visitKeyPathExpr(KeyPathExpr *E, SGFContext C) {
           SILLocation(E), SGF.F.getGenericEnvironment(),
           SGF.F.getResilienceExpansion(), numOperands, needsGenericContext,
           component.getDeclRef().getSubstitutions(), decl,
-          component.getIndexHashableConformances(), baseTy, SGF.FunctionDC,
+          components[i + 1].getIndexHashableConformances(), baseTy,
+          SGF.FunctionDC,
           /*for descriptor*/ false));
       baseTy = loweredComponents.back().getComponentType();
-      if (kind == KeyPathExpr::Component::Kind::Member)
+      if (!dyn_cast<AbstractFunctionDecl>(decl) &&
+          kind == KeyPathExpr::Component::Kind::Member)
         break;
 
       auto args = component.getArgs();
-      if (auto func = cast<AbstractFuncDecl>(decl)) {
+      if (auto func = cast<AbstractFunctionDecl>(decl)) {
         // If Component::Kind::Member is a method member, get args from Apply
         // component which immediately follows current component.
-        args = components[i + 1].getArgs;
+        args = components[i + 1].getArgs();
       }
 
       auto loweredArgs = SGF.emitKeyPathMemberOperands(
@@ -4410,6 +4572,8 @@ RValue RValueEmitter::visitKeyPathExpr(KeyPathExpr *E, SGFContext C) {
     }
 
     case KeyPathExpr::Component::Kind::Apply: {
+      // Apply arguments for resolved methods are handled above in
+      // Component::Kind::Member
       break;
     }
 
@@ -4470,7 +4634,7 @@ RValue RValueEmitter::visitKeyPathExpr(KeyPathExpr *E, SGFContext C) {
       break;
     }
   }
-  
+
   StringRef objcString;
   if (auto objcExpr = dyn_cast_or_null<StringLiteralExpr>
                                                 (E->getObjCStringLiteralExpr()))

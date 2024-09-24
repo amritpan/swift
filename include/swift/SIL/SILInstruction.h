@@ -3460,12 +3460,14 @@ public:
     union ValueType {
       AbstractStorageDecl *Property;
       SILFunction *Function;
+      AbstractFunctionDecl *FunctionDecl;
       SILDeclRef DeclRef;
       AbstractFunctionDecl *FunctionDecl;
 
       ValueType() : Property(nullptr) {}
       ValueType(AbstractStorageDecl *p) : Property(p) {}
       ValueType(SILFunction *f) : Function(f) {}
+      ValueType(AbstractFunctionDecl *fd) : FunctionDecl(fd) {}
       ValueType(SILDeclRef d) : DeclRef(d) {}
       ValueType(AbstractFunctionDecl *a) : FunctionDecl(a) {}
     } Value;
@@ -3478,16 +3480,17 @@ public:
     
   public:
     ComputedPropertyId() : Value(), Kind(Property) {}
-  
+
     /*implicit*/ ComputedPropertyId(VarDecl *property)
-      : Value{property}, Kind{Property}
-    {
-    }
-    
+        : Value{property}, Kind{Property} {}
+
     /*implicit*/ ComputedPropertyId(SILFunction *function)
       : Value{function}, Kind{Function}
     {}
-    
+
+    /*implicit*/ ComputedPropertyId(AbstractFunctionDecl *function)
+        : Value{function}, Kind{Function} {}
+
     /*implicit*/ ComputedPropertyId(SILDeclRef declRef)
       : Value{declRef}, Kind{DeclRef}
     {}
@@ -3506,7 +3509,12 @@ public:
       assert(getKind() == Function);
       return Value.Function;
     }
-    
+
+    AbstractFunctionDecl *getFunctionDecl() const {
+      assert(getKind() == Function);
+      return Value.FunctionDecl;
+    }
+
     SILDeclRef getDeclRef() const {
       assert(getKind() == DeclRef);
       return Value.DeclRef;
@@ -3614,7 +3622,13 @@ private:
       ExternalSubstitutions(externalSubstitutions)
   {
   }
-  
+
+  KeyPathPatternComponent(ComputedPropertyId id,
+                          AbstractFunctionDecl *functionDecl,
+                          CanType componentType)
+      : ValueAndKind(functionDecl, PackedComputed), IdValue{id.Value},
+        ComponentType(componentType) {}
+
   /// Constructor for optional components.
   KeyPathPatternComponent(Kind kind, CanType componentType)
     : ValueAndKind((void*)((uintptr_t)kind << KindPackingBits), Unpacked),
@@ -3858,7 +3872,13 @@ public:
                                    externalDecl, externalSubs,
                                    ty);
   }
-  
+
+  static KeyPathPatternComponent
+  forFunctionComponent(ComputedPropertyId identifier, AbstractFunctionDecl *fn,
+                       CanType ty) {
+    return KeyPathPatternComponent(identifier, fn, ty);
+  }
+
   static KeyPathPatternComponent
   forOptional(Kind kind, CanType ty) {
     switch (kind) {

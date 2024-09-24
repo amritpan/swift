@@ -2955,6 +2955,8 @@ forEachRefcountableReference(const KeyPathPatternComponent &component,
     forFunction(component.getComputedPropertyGetter());
     
     switch (component.getComputedPropertyId().getKind()) {
+    case KeyPathPatternComponent::ComputedPropertyId::FunctionDecl:
+      break;
     case KeyPathPatternComponent::ComputedPropertyId::DeclRef:
       // Mark the vtable entry as used somehow?
       break;
@@ -3106,6 +3108,10 @@ void KeyPathPattern::Profile(llvm::FoldingSetNodeID &ID,
       auto id = component.getComputedPropertyId();
       ID.AddInteger(id.getKind());
       switch (id.getKind()) {
+      case KeyPathPatternComponent::ComputedPropertyId::FunctionDecl: {
+        ID.AddPointer(id.getProperty());
+        break;
+      }
       case KeyPathPatternComponent::ComputedPropertyId::DeclRef: {
         auto declRef = id.getDeclRef();
         ID.AddPointer(declRef.loc.getOpaqueValue());
@@ -3230,6 +3236,9 @@ visitReferencedFunctionsAndMethods(
     functionCallBack(getComputedPropertyGetter());
     auto id = getComputedPropertyId();
     switch (id.getKind()) {
+    case KeyPathPatternComponent::ComputedPropertyId::FunctionDecl: {
+      break;
+    }
     case KeyPathPatternComponent::ComputedPropertyId::DeclRef: {
       methodCallBack(id.getDeclRef());
       break;
