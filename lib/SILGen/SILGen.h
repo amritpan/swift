@@ -424,6 +424,8 @@ public:
   SILDeclRef getAccessorDeclRef(AccessorDecl *accessor,
                                 ResilienceExpansion expansion);
 
+  SILDeclRef getFuncDeclRef(ValueDecl *funcDecl, ResilienceExpansion expansion);
+
   bool canStorageUseStoredKeyPathComponent(AbstractStorageDecl *decl,
                                            ResilienceExpansion expansion);
 

@@ -8023,6 +8023,21 @@ public:
   std::optional<unsigned> findPotentialCompletionHandlerParam(
       const AbstractFunctionDecl *asyncAlternative = nullptr) const;
 
+  /// True if the storage can be referenced by a keypath directly.
+  /// Otherwise, its override must be referenced.
+  bool isValidKeyPathComponent() const;
+
+  /// Do we need to use resilient access patterns outside of this
+  /// decl's resilience domain?
+  bool isResilient() const;
+
+  /// Do we need to use resilient access patterns when accessing this
+  /// property from the given module?
+  bool isResilient(ModuleDecl *M, ResilienceExpansion expansion) const;
+
+  /// Does this storage require opaque accessors of any kind?
+  bool requiresOpaqueAccessors() const;
+
   using DeclContext::operator new;
   using DeclContext::operator delete;
   using Decl::getASTContext;

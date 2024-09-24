@@ -7129,6 +7129,16 @@ SILDeclRef SILGenModule::getAccessorDeclRef(AccessorDecl *accessor,
   return declRef.asForeign(requiresForeignEntryPoint(accessor));
 }
 
+SILDeclRef SILGenModule::getFuncDeclRef(ValueDecl *funcDecl,
+                                        ResilienceExpansion expansion) {
+  auto declRef = SILDeclRef(funcDecl, SILDeclRef::Kind::Func);
+
+  if (requiresBackDeploymentThunk(funcDecl, expansion))
+    return declRef.asBackDeploymentKind(SILDeclRef::BackDeploymentKind::Thunk);
+
+  return declRef.asForeign(requiresForeignEntryPoint(funcDecl));
+}
+
 /// Emit a call to a getter.
 RValue SILGenFunction::emitGetAccessor(
     SILLocation loc, SILDeclRef get, SubstitutionMap substitutions,
@@ -7729,9 +7739,13 @@ SILGenFunction::emitKeyPathMemberOperands(SILLocation loc, ValueDecl *decl,
                                           SubstitutionMap subs,
                                           ArgumentList *argList) {
   SmallVector<ManagedValue, 4> argValues;
-
+  Type interfaceType;
   if (auto subscript = cast<SubscriptDecl>(decl)) {
-    Type interfaceType = subscript->getInterfaceType();
+    interfaceType = subscript->getInterfaceType();
+  } else if (auto method = cast<AbstractFunctionDecl>(decl)) {
+    interfaceType = method->getInterfaceType();
+  }
+
     CanFunctionType substFnType =
         subs ? cast<FunctionType>(interfaceType->castTo<GenericFunctionType>()
                                       ->substGenericArgs(subs)
@@ -7756,7 +7770,6 @@ SILGenFunction::emitKeyPathMemberOperands(SILLocation loc, ValueDecl *decl,
 
     if (!delayedArgs.empty())
       emitDelayedArguments(*this, delayedArgs, argValues);
-  }
 
   return argValues;
 }
