@@ -7174,14 +7174,14 @@ PreparedArguments SILGenFunction::prepareIndices(SILLocation loc,
   return result;
 }
 
-SILDeclRef SILGenModule::getAccessorDeclRef(AccessorDecl *accessor,
-                                            ResilienceExpansion expansion) {
-  auto declRef = SILDeclRef(accessor, SILDeclRef::Kind::Func);
+SILDeclRef SILGenModule::getFuncDeclRef(FuncDecl *funcDecl,
+                                        ResilienceExpansion expansion) {
+  auto declRef = SILDeclRef(funcDecl, SILDeclRef::Kind::Func);
 
-  if (requiresBackDeploymentThunk(accessor, expansion))
+  if (requiresBackDeploymentThunk(funcDecl, expansion))
     return declRef.asBackDeploymentKind(SILDeclRef::BackDeploymentKind::Thunk);
 
-  return declRef.asForeign(requiresForeignEntryPoint(accessor));
+  return declRef.asForeign(requiresForeignEntryPoint(funcDecl));
 }
 
 /// Emit a call to a getter.
@@ -7263,6 +7263,44 @@ void SILGenFunction::emitSetAccessor(SILLocation loc, SILDeclRef set,
   emission.addCallSite(loc, std::move(values));
   // ()
   emission.apply();
+}
+
+/// Emit a call to a keypath method
+RValue SILGenFunction::emitRValueForKeyPathMethod(
+    SILLocation loc, ManagedValue base, CanType baseType,
+    AbstractFunctionDecl *method, Type methodTy, PreparedArguments &&methodArgs,
+    SubstitutionMap subs, SGFContext C) {
+  FormalEvaluationScope writebackScope(*this);
+
+  // Self RValue
+  RValue selfRValue(*this, loc, baseType, base);
+  ArgumentSource selfArg(loc, std::move(selfRValue));
+
+  // Callee resolution
+  std::optional<Callee> callee;
+  if (isa<ProtocolDecl>(method->getDeclContext())) {
+    callee.emplace(Callee::forWitnessMethod(*this, selfArg.getSubstRValueType(),
+                                            SILDeclRef(method), subs, loc));
+  } else if (getMethodDispatch(method) == MethodDispatch::Class) {
+    callee.emplace(
+        Callee::forClassMethod(*this, SILDeclRef(method), subs, loc));
+  } else {
+    callee.emplace(Callee::forDirect(*this, SILDeclRef(method), subs, loc));
+  }
+
+  // Call Emission
+  CallEmission emission(*this, std::move(*callee), std::move(writebackScope));
+
+  // Self
+  emission.addSelfParam(loc, std::move(selfArg),
+                        callee->getSubstFormalType().getParams()[0]);
+
+  // Arguments
+  if (!methodArgs.isNull()) {
+    emission.addCallSite(loc, std::move(methodArgs));
+  }
+
+  return emission.apply(C);
 }
 
 /// Emit a call to an addressor.
