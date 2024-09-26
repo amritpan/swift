@@ -837,6 +837,9 @@ emitKeyPathComponent(IRGenModule &IGM,
     llvm::Constant *idValue;
     KeyPathComponentHeader::ComputedPropertyIDResolution idResolution;
     switch (id.getKind()) {
+    case KeyPathPatternComponent::ComputedPropertyId::FunctionDecl: {
+      break;
+    }
     case KeyPathPatternComponent::ComputedPropertyId::Function: {
       idKind = KeyPathComponentHeader::Pointer;
       // FIXME: Does this need to be signed?
@@ -1040,6 +1043,9 @@ emitKeyPathComponent(IRGenModule &IGM,
     }
     break;
   }
+  case KeyPathPatternComponent::Kind::Method: {
+    break;
+  }
   case KeyPathPatternComponent::Kind::OptionalChain:
     fields.addInt32(KeyPathComponentHeader::forOptionalChain().getData());
     break;
@@ -1167,6 +1173,7 @@ IRGenModule::getAddrOfKeyPathPattern(KeyPathPattern *pattern,
     switch (component.getKind()) {
     case KeyPathPatternComponent::Kind::GettableProperty:
     case KeyPathPatternComponent::Kind::SettableProperty:
+    case KeyPathPatternComponent::Kind::Method:
       for (auto &index : component.getSubscriptIndices()) {
         operands[index.Operand].LoweredType = index.LoweredType;
         operands[index.Operand].LastUser = &component;
