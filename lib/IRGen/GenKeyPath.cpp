@@ -837,9 +837,6 @@ emitKeyPathComponent(IRGenModule &IGM,
     llvm::Constant *idValue;
     KeyPathComponentHeader::ComputedPropertyIDResolution idResolution;
     switch (id.getKind()) {
-    case KeyPathPatternComponent::ComputedPropertyId::FunctionDecl: {
-      break;
-    }
     case KeyPathPatternComponent::ComputedPropertyId::Function: {
       idKind = KeyPathComponentHeader::Pointer;
       // FIXME: Does this need to be signed?
@@ -983,7 +980,7 @@ emitKeyPathComponent(IRGenModule &IGM,
       }
       break;
     }
-    
+
     auto header = KeyPathComponentHeader::forComputedProperty(componentKind,
                                      idKind, !isInstantiableOnce, idResolution);
     
