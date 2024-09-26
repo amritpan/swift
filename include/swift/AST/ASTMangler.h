@@ -348,6 +348,11 @@ public:
                                              CanType baseType,
                                              SubstitutionMap subs,
                                              ResilienceExpansion expansion);
+  std::string mangleKeyPathMethodThunkHelper(const AbstractFunctionDecl *method,
+                                             GenericSignature signature,
+                                             CanType baseType,
+                                             SubstitutionMap subs,
+                                             ResilienceExpansion expansion);
   std::string mangleKeyPathEqualsHelper(ArrayRef<CanType> indices,
                                         GenericSignature signature,
                                         ResilienceExpansion expansion);
