@@ -2953,10 +2953,8 @@ forEachRefcountableReference(const KeyPathPatternComponent &component,
     LLVM_FALLTHROUGH;
   case KeyPathPatternComponent::Kind::GettableProperty:
     forFunction(component.getComputedPropertyGetter());
-    
+
     switch (component.getComputedPropertyId().getKind()) {
-    case KeyPathPatternComponent::ComputedPropertyId::FunctionDecl:
-      break;
     case KeyPathPatternComponent::ComputedPropertyId::DeclRef:
       // Mark the vtable entry as used somehow?
       break;
@@ -2965,11 +2963,8 @@ forEachRefcountableReference(const KeyPathPatternComponent &component,
       break;
     case KeyPathPatternComponent::ComputedPropertyId::Property:
       break;
-    case KeyPathPatternComponent::ComputedPropertyId::FunctionDecl:
-      forFunction(component.getComputedPropertyId().getFunction());
-      break;
     }
-    
+
     if (auto equals = component.getSubscriptIndexEquals())
       forFunction(equals);
     if (auto hash = component.getSubscriptIndexHash())
@@ -3018,6 +3013,7 @@ KeyPathPattern::get(SILModule &M, CanGenericSignature signature,
       for (auto &index : component.getSubscriptIndices()) {
         maxOperandNo = std::max(maxOperandNo, (int)index.Operand);
       }
+      break;
     case KeyPathPatternComponent::Kind::Method:
       break;
     }
@@ -3108,10 +3104,6 @@ void KeyPathPattern::Profile(llvm::FoldingSetNodeID &ID,
       auto id = component.getComputedPropertyId();
       ID.AddInteger(id.getKind());
       switch (id.getKind()) {
-      case KeyPathPatternComponent::ComputedPropertyId::FunctionDecl: {
-        ID.AddPointer(id.getProperty());
-        break;
-      }
       case KeyPathPatternComponent::ComputedPropertyId::DeclRef: {
         auto declRef = id.getDeclRef();
         ID.AddPointer(declRef.loc.getOpaqueValue());
@@ -3126,10 +3118,6 @@ void KeyPathPattern::Profile(llvm::FoldingSetNodeID &ID,
       }
       case KeyPathPatternComponent::ComputedPropertyId::Property: {
         ID.AddPointer(id.getProperty());
-        break;
-      }
-      case KeyPathPatternComponent::ComputedPropertyId::FunctionDecl: {
-        ID.AddPointer(id.getFunction());
         break;
       }
       }
@@ -3236,9 +3224,6 @@ visitReferencedFunctionsAndMethods(
     functionCallBack(getComputedPropertyGetter());
     auto id = getComputedPropertyId();
     switch (id.getKind()) {
-    case KeyPathPatternComponent::ComputedPropertyId::FunctionDecl: {
-      break;
-    }
     case KeyPathPatternComponent::ComputedPropertyId::DeclRef: {
       methodCallBack(id.getDeclRef());
       break;
@@ -3248,8 +3233,6 @@ visitReferencedFunctionsAndMethods(
       break;
     case KeyPathPatternComponent::ComputedPropertyId::Property:
       break;
-    case KeyPathPatternComponent::ComputedPropertyId::FunctionDecl:
-      functionCallBack(id.getFunction());
     }
   }
 

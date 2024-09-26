@@ -664,6 +664,11 @@ private:
             (comp, std::move(parent), beginAccess, optionalChainResult, loc,
              builder);
         break;
+      case KeyPathPatternComponent::Kind::Method:
+        projector = std::make_unique<OptionalChainProjector>(
+            comp, std::move(parent), beginAccess, optionalChainResult, loc,
+            builder);
+        break;
     }
     
     // Project the rest of the chain on top of this component.
