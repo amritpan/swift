@@ -4434,6 +4434,10 @@ RValue RValueEmitter::visitKeyPathExpr(KeyPathExpr *E, SGFContext C) {
       break;
     }
 
+    case KeyPathExpr::Component::Kind::Apply: {
+      break;
+    }
+
     case KeyPathExpr::Component::Kind::TupleElement: {
       assert(baseTy->is<TupleType>() && "baseTy is expected to be a TupleType");
 
@@ -4481,6 +4485,7 @@ RValue RValueEmitter::visitKeyPathExpr(KeyPathExpr *E, SGFContext C) {
     case KeyPathExpr::Component::Kind::Invalid:
     case KeyPathExpr::Component::Kind::UnresolvedMember:
     case KeyPathExpr::Component::Kind::UnresolvedSubscript:
+    case KeyPathExpr::Component::Kind::UnresolvedApply:
     case KeyPathExpr::Component::Kind::CodeCompletion:
       llvm_unreachable("not resolved");
       break;
