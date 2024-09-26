@@ -1893,13 +1893,9 @@ static PreparedArguments emitStringLiteralArgs(SILGenFunction &SGF, SILLocation 
 
 /// Emit a raw apply operation, performing no additional lowering of
 /// either the arguments or the result.
-static void emitRawApply(SILGenFunction &SGF,
-                         SILLocation loc,
-                         ManagedValue fn,
-                         SubstitutionMap subs,
-                         ArrayRef<ManagedValue> args,
-                         CanSILFunctionType substFnType,
-                         ApplyOptions options,
+static void emitRawApply(SILGenFunction &SGF, SILLocation loc, ManagedValue fn,
+                         SubstitutionMap subs, ArrayRef<ManagedValue> args,
+                         CanSILFunctionType substFnType, ApplyOptions options,
                          ArrayRef<SILValue> indirectResultAddrs,
                          SILValue indirectErrorAddr,
                          SmallVectorImpl<SILValue> &rawResults,
@@ -4821,6 +4817,7 @@ public:
     ArgEmitter emitter(SGF, Loc, lowering.Rep, /*yield*/ false,
                        /*isForCoroutine*/ substFnType->isCoroutine(), params,
                        args, delayedArgs, foreign);
+
     emitter.emitPreparedArgs(std::move(Args), origFormalType);
   }
 
@@ -4934,13 +4931,6 @@ public:
     return value;
   }
 
-  // Movable, but not copyable.
-  CallEmission(CallEmission &&e) = default;
-
-private:
-  CallEmission(const CallEmission &) = delete;
-  CallEmission &operator=(const CallEmission &) = delete;
-
   /// Emit all of the arguments for a normal apply. This means an apply that
   /// is not:
   ///
@@ -4957,13 +4947,20 @@ private:
       AbstractionPattern origFormalType, CanSILFunctionType substFnType,
       const ForeignInfo &foreign, SmallVectorImpl<ManagedValue> &uncurriedArgs,
       std::optional<SILLocation> &uncurriedLoc);
+  
+  RValue applyNormalCall(SGFContext C);
+
+  // Movable, but not copyable.
+  CallEmission(CallEmission &&e) = default;
+
+private:
+  CallEmission(const CallEmission &) = delete;
+  CallEmission &operator=(const CallEmission &) = delete;
 
   RValue
   applySpecializedEmitter(SpecializedEmitter &specializedEmitter, SGFContext C);
 
   RValue applyEnumElementConstructor(SGFContext C);
-
-  RValue applyNormalCall(SGFContext C);
 
   RValue applyFirstLevelCallee(SGFContext C);
 };
@@ -5427,8 +5424,7 @@ ApplyOptions CallEmission::emitArgumentsForNormalApply(
       // Claim the foreign "self" with the self param.
       auto siteForeign = ForeignInfo{foreign.self, {}, {}};
       std::move(*selfArg).emit(SGF, origFormalType, substFnType, paramLowering,
-                               args.back(), delayedArgs,
-                               siteForeign);
+                               args.back(), delayedArgs, siteForeign);
 
       origFormalType = origFormalType.getFunctionResultType();
     }
@@ -5735,8 +5731,8 @@ RValue SILGenFunction::emitApply(
   {
     SmallVector<SILValue, 1> rawDirectResults;
     emitRawApply(*this, loc, fn, subs, args, substFnType, options,
-                 indirectResultAddrs, indirectErrorAddr,
-                 rawDirectResults, breadcrumb);
+                 indirectResultAddrs, indirectErrorAddr, rawDirectResults,
+                 breadcrumb);
     assert(rawDirectResults.size() == 1);
     rawDirectResult = rawDirectResults[0];
   }
@@ -7144,14 +7140,14 @@ SILGenFunction::prepareSubscriptIndices(SILLocation loc,
   return result;
 }
 
-SILDeclRef SILGenModule::getAccessorDeclRef(AccessorDecl *accessor,
-                                            ResilienceExpansion expansion) {
-  auto declRef = SILDeclRef(accessor, SILDeclRef::Kind::Func);
+SILDeclRef SILGenModule::getFuncDeclRef(FuncDecl *funcDecl,
+                                        ResilienceExpansion expansion) {
+  auto declRef = SILDeclRef(funcDecl, SILDeclRef::Kind::Func);
 
-  if (requiresBackDeploymentThunk(accessor, expansion))
+  if (requiresBackDeploymentThunk(funcDecl, expansion))
     return declRef.asBackDeploymentKind(SILDeclRef::BackDeploymentKind::Thunk);
 
-  return declRef.asForeign(requiresForeignEntryPoint(accessor));
+  return declRef.asForeign(requiresForeignEntryPoint(funcDecl));
 }
 
 /// Emit a call to a getter.
@@ -7233,6 +7229,44 @@ void SILGenFunction::emitSetAccessor(SILLocation loc, SILDeclRef set,
   emission.addCallSite(loc, std::move(values));
   // ()
   emission.apply();
+}
+
+/// Emit a call to a keypath method
+RValue SILGenFunction::emitRValueForKeyPathMethod(
+    SILLocation loc, ManagedValue base, CanType baseType,
+    AbstractFunctionDecl *method, Type methodTy, PreparedArguments &&methodArgs,
+    SubstitutionMap subs, SGFContext C) {
+  FormalEvaluationScope writebackScope(*this);
+
+  // Self RValue
+  RValue selfRValue(*this, loc, baseType, base);
+  ArgumentSource selfArg(loc, std::move(selfRValue));
+
+  // Callee resolution
+  std::optional<Callee> callee;
+  if (isa<ProtocolDecl>(method->getDeclContext())) {
+    callee.emplace(Callee::forWitnessMethod(*this, selfArg.getSubstRValueType(),
+                                            SILDeclRef(method), subs, loc));
+  } else if (getMethodDispatch(method) == MethodDispatch::Class) {
+    callee.emplace(
+        Callee::forClassMethod(*this, SILDeclRef(method), subs, loc));
+  } else {
+    callee.emplace(Callee::forDirect(*this, SILDeclRef(method), subs, loc));
+  }
+
+  // Call Emission
+  CallEmission emission(*this, std::move(*callee), std::move(writebackScope));
+
+  // Self
+  emission.addSelfParam(loc, std::move(selfArg),
+                        callee->getSubstFormalType().getParams()[0]);
+
+  // Arguments
+  if (!methodArgs.isNull()) {
+    emission.addCallSite(loc, std::move(methodArgs));
+  }
+
+  return emission.apply(C);
 }
 
 /// Emit a call to an addressor.
