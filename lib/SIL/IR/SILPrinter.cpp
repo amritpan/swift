@@ -3027,11 +3027,6 @@ public:
         printValueDecl(id.getProperty(), PrintState.OS);
         break;
       }
-      case KeyPathPatternComponent::ComputedPropertyId::FunctionDecl: {
-        id.getFunction()->printName(PrintState.OS);
-        *this << " : " << id.getFunction()->getLoweredType();
-        break;
-      }
       }
       *this << ", getter ";
       component.getComputedPropertyGetter()->printName(PrintState.OS);

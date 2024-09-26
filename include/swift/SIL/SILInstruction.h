@@ -3452,7 +3452,6 @@ public:
       Property,
       Function,
       DeclRef,
-      FunctionDecl,
     };
 
   private:
@@ -3460,16 +3459,12 @@ public:
     union ValueType {
       AbstractStorageDecl *Property;
       SILFunction *Function;
-      AbstractFunctionDecl *FunctionDecl;
       SILDeclRef DeclRef;
-      AbstractFunctionDecl *FunctionDecl;
 
       ValueType() : Property(nullptr) {}
       ValueType(AbstractStorageDecl *p) : Property(p) {}
       ValueType(SILFunction *f) : Function(f) {}
-      ValueType(AbstractFunctionDecl *fd) : FunctionDecl(fd) {}
       ValueType(SILDeclRef d) : DeclRef(d) {}
-      ValueType(AbstractFunctionDecl *a) : FunctionDecl(a) {}
     } Value;
   
     KindType Kind;
@@ -3488,15 +3483,9 @@ public:
       : Value{function}, Kind{Function}
     {}
 
-    /*implicit*/ ComputedPropertyId(AbstractFunctionDecl *function)
-        : Value{function}, Kind{Function} {}
-
     /*implicit*/ ComputedPropertyId(SILDeclRef declRef)
       : Value{declRef}, Kind{DeclRef}
     {}
-
-    /*implicit*/ ComputedPropertyId(AbstractFunctionDecl *funcDecl)
-        : Value{funcDecl}, Kind{FunctionDecl} {}
 
     KindType getKind() const { return Kind; }
     
@@ -3510,19 +3499,9 @@ public:
       return Value.Function;
     }
 
-    AbstractFunctionDecl *getFunctionDecl() const {
-      assert(getKind() == Function);
-      return Value.FunctionDecl;
-    }
-
     SILDeclRef getDeclRef() const {
       assert(getKind() == DeclRef);
       return Value.DeclRef;
-    }
-
-    FuncDecl *getFuncDecl() const {
-      assert(getKind() == FunctionDecl);
-      return cast<FuncDecl>(Value.FunctionDecl);
     }
   };
 
@@ -3622,12 +3601,6 @@ private:
       ExternalSubstitutions(externalSubstitutions)
   {
   }
-
-  KeyPathPatternComponent(ComputedPropertyId id,
-                          AbstractFunctionDecl *functionDecl,
-                          CanType componentType)
-      : ValueAndKind(functionDecl, PackedComputed), IdValue{id.Value},
-        ComponentType(componentType) {}
 
   /// Constructor for optional components.
   KeyPathPatternComponent(Kind kind, CanType componentType)
@@ -3871,12 +3844,6 @@ public:
                                    indicesEquals, indicesHash,
                                    externalDecl, externalSubs,
                                    ty);
-  }
-
-  static KeyPathPatternComponent
-  forFunctionComponent(ComputedPropertyId identifier, AbstractFunctionDecl *fn,
-                       CanType ty) {
-    return KeyPathPatternComponent(identifier, fn, ty);
   }
 
   static KeyPathPatternComponent

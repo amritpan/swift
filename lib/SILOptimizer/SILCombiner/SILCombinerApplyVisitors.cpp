@@ -389,6 +389,7 @@ bool swift::tryOptimizeKeypathOffsetOf(ApplyInst *AI,
         return false;
       hasOffset = false;
       break;
+    case KeyPathPatternComponent::Kind::Method:
     case KeyPathPatternComponent::Kind::OptionalChain:
     case KeyPathPatternComponent::Kind::OptionalForce:
     case KeyPathPatternComponent::Kind::OptionalWrap:
