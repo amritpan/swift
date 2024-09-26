@@ -3449,19 +3449,25 @@ public:
     friend KeyPathPatternComponent;
   public:
     enum KindType {
-      Property, Function, DeclRef,
+      Property,
+      Function,
+      DeclRef,
+      FunctionDecl,
     };
+
   private:
   
     union ValueType {
       AbstractStorageDecl *Property;
       SILFunction *Function;
       SILDeclRef DeclRef;
-      
+      AbstractFunctionDecl *FunctionDecl;
+
       ValueType() : Property(nullptr) {}
       ValueType(AbstractStorageDecl *p) : Property(p) {}
       ValueType(SILFunction *f) : Function(f) {}
       ValueType(SILDeclRef d) : DeclRef(d) {}
+      ValueType(AbstractFunctionDecl *a) : FunctionDecl(a) {}
     } Value;
   
     KindType Kind;
@@ -3485,7 +3491,10 @@ public:
     /*implicit*/ ComputedPropertyId(SILDeclRef declRef)
       : Value{declRef}, Kind{DeclRef}
     {}
-    
+
+    /*implicit*/ ComputedPropertyId(AbstractFunctionDecl *funcDecl)
+        : Value{funcDecl}, Kind{FunctionDecl} {}
+
     KindType getKind() const { return Kind; }
     
     VarDecl *getProperty() const {
@@ -3502,9 +3511,14 @@ public:
       assert(getKind() == DeclRef);
       return Value.DeclRef;
     }
+
+    FuncDecl *getFuncDecl() const {
+      assert(getKind() == FunctionDecl);
+      return cast<FuncDecl>(Value.FunctionDecl);
+    }
   };
-  
-  enum class Kind: unsigned {
+
+  enum class Kind : unsigned {
     StoredProperty,
     GettableProperty,
     SettableProperty,
@@ -3512,8 +3526,9 @@ public:
     OptionalChain,
     OptionalForce,
     OptionalWrap,
+    Method,
   };
-  
+
   // Description of a captured index value and its Hashable conformance for a
   // subscript keypath.
   struct Index {
@@ -3524,12 +3539,13 @@ public:
   };
   
 private:
-  enum PackedKind: unsigned {
+  enum PackedKind : unsigned {
     PackedStored,
     PackedComputed,
+    PackedFunc,
     Unpacked,
   };
-  
+
   static const unsigned KindPackingBits = 2;
   
   static unsigned getPackedKind(Kind k) {
@@ -3540,15 +3556,17 @@ private:
     case Kind::GettableProperty:
     case Kind::SettableProperty:
       return PackedComputed;
+    case Kind::Method:
+      return PackedFunc;
     case Kind::OptionalChain:
     case Kind::OptionalForce:
     case Kind::OptionalWrap:
       return Unpacked;
     }
   }
-  
+
   // Value is the VarDecl* for StoredProperty, the SILFunction* of the
-  // Getter for computed properties, or the Kind for other kinds
+  // Getter for computed properties or methods, or the Kind for other kinds
   llvm::PointerIntPair<void *, KindPackingBits, unsigned> ValueAndKind;
   llvm::PointerIntPair<SILFunction *, 2,
                        ComputedPropertyId::KindType> SetterAndIdKind;
@@ -3631,6 +3649,8 @@ public:
         ? Kind::SettableProperty : Kind::GettableProperty;
     case Unpacked:
       return (Kind)((uintptr_t)ValueAndKind.getPointer() >> KindPackingBits);
+    case PackedFunc:
+      return Kind::Method;
     }
     llvm_unreachable("unhandled kind");
   }
@@ -3649,6 +3669,7 @@ public:
     case Kind::OptionalForce:
     case Kind::OptionalWrap:
     case Kind::TupleElement:
+    case Kind::Method:
       llvm_unreachable("not a stored property");
     }
     llvm_unreachable("unhandled kind");
@@ -3661,6 +3682,7 @@ public:
     case Kind::OptionalForce:
     case Kind::OptionalWrap:
     case Kind::TupleElement:
+    case Kind::Method:
       llvm_unreachable("not a computed property");
     case Kind::GettableProperty:
     case Kind::SettableProperty:
@@ -3677,6 +3699,7 @@ public:
     case Kind::OptionalForce:
     case Kind::OptionalWrap:
     case Kind::TupleElement:
+    case Kind::Method:
       llvm_unreachable("not a computed property");
     case Kind::GettableProperty:
     case Kind::SettableProperty:
@@ -3693,6 +3716,7 @@ public:
     case Kind::OptionalForce:
     case Kind::OptionalWrap:
     case Kind::TupleElement:
+    case Kind::Method:
       llvm_unreachable("not a settable computed property");
     case Kind::SettableProperty:
       return SetterAndIdKind.getPointer();
@@ -3710,6 +3734,7 @@ public:
       return {};
     case Kind::GettableProperty:
     case Kind::SettableProperty:
+    case Kind::Method:
       return Indices;
     }
     llvm_unreachable("unhandled kind");
@@ -3725,6 +3750,7 @@ public:
       llvm_unreachable("not a computed property");
     case Kind::GettableProperty:
     case Kind::SettableProperty:
+    case Kind::Method:
       return IndexEquality.Equal;
     }
     llvm_unreachable("unhandled kind");
@@ -3739,6 +3765,7 @@ public:
       llvm_unreachable("not a computed property");
     case Kind::GettableProperty:
     case Kind::SettableProperty:
+    case Kind::Method:
       return IndexEquality.Hash;
     }
     llvm_unreachable("unhandled kind");
@@ -3758,6 +3785,7 @@ public:
     case Kind::OptionalForce:
     case Kind::OptionalWrap:
     case Kind::TupleElement:
+    case Kind::Method:
       llvm_unreachable("not a computed property");
     case Kind::GettableProperty:
     case Kind::SettableProperty:
@@ -3776,6 +3804,7 @@ public:
       llvm_unreachable("not a computed property");
     case Kind::GettableProperty:
     case Kind::SettableProperty:
+    case Kind::Method:
       return ExternalSubstitutions;
     }
     llvm_unreachable("unhandled kind");
@@ -3789,6 +3818,7 @@ public:
     case Kind::OptionalWrap:
     case Kind::GettableProperty:
     case Kind::SettableProperty:
+    case Kind::Method:
       llvm_unreachable("not a tuple element");
     case Kind::TupleElement:
       return TupleIndex - 1;
@@ -3843,6 +3873,7 @@ public:
     case Kind::GettableProperty:
     case Kind::SettableProperty:
     case Kind::TupleElement:
+    case Kind::Method:
       llvm_unreachable("not an optional kind");
     }
     return KeyPathPatternComponent(kind, ty);

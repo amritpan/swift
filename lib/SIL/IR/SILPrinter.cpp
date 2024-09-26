@@ -3027,6 +3027,11 @@ public:
         printValueDecl(id.getProperty(), PrintState.OS);
         break;
       }
+      case KeyPathPatternComponent::ComputedPropertyId::FunctionDecl: {
+        id.getFunction()->printName(PrintState.OS);
+        *this << " : " << id.getFunction()->getLoweredType();
+        break;
+      }
       }
       *this << ", getter ";
       component.getComputedPropertyGetter()->printName(PrintState.OS);
@@ -3062,6 +3067,9 @@ public:
       }
       
       break;
+    }
+    case KeyPathPatternComponent::Kind::Method: {
+      *this << "method #";
     }
     case KeyPathPatternComponent::Kind::OptionalWrap:
     case KeyPathPatternComponent::Kind::OptionalChain:

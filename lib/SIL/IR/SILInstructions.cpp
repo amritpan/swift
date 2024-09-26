@@ -2927,6 +2927,7 @@ bool KeyPathPatternComponent::isComputedSettablePropertyMutating() const {
   case Kind::OptionalWrap:
   case Kind::OptionalForce:
   case Kind::TupleElement:
+  case Kind::Method:
     llvm_unreachable("not a settable computed property");
   case Kind::SettableProperty: {
     auto setter = getComputedPropertySetter();
@@ -2962,12 +2963,17 @@ forEachRefcountableReference(const KeyPathPatternComponent &component,
       break;
     case KeyPathPatternComponent::ComputedPropertyId::Property:
       break;
+    case KeyPathPatternComponent::ComputedPropertyId::FunctionDecl:
+      forFunction(component.getComputedPropertyId().getFunction());
+      break;
     }
     
     if (auto equals = component.getSubscriptIndexEquals())
       forFunction(equals);
     if (auto hash = component.getSubscriptIndexHash())
       forFunction(hash);
+    return;
+  case KeyPathPatternComponent::Kind::Method:
     return;
   }
 }
@@ -3010,6 +3016,8 @@ KeyPathPattern::get(SILModule &M, CanGenericSignature signature,
       for (auto &index : component.getSubscriptIndices()) {
         maxOperandNo = std::max(maxOperandNo, (int)index.Operand);
       }
+    case KeyPathPatternComponent::Kind::Method:
+      break;
     }
   }
   
@@ -3086,7 +3094,10 @@ void KeyPathPattern::Profile(llvm::FoldingSetNodeID &ID,
     case KeyPathPatternComponent::Kind::TupleElement:
       ID.AddInteger(component.getTupleIndex());
       break;
-    
+
+    case KeyPathPatternComponent::Kind::Method:
+      break;
+
     case KeyPathPatternComponent::Kind::SettableProperty:
       ID.AddPointer(component.getComputedPropertySetter());
       LLVM_FALLTHROUGH;
@@ -3109,6 +3120,10 @@ void KeyPathPattern::Profile(llvm::FoldingSetNodeID &ID,
       }
       case KeyPathPatternComponent::ComputedPropertyId::Property: {
         ID.AddPointer(id.getProperty());
+        break;
+      }
+      case KeyPathPatternComponent::ComputedPropertyId::FunctionDecl: {
+        ID.AddPointer(id.getFunction());
         break;
       }
       }
@@ -3224,7 +3239,10 @@ visitReferencedFunctionsAndMethods(
       break;
     case KeyPathPatternComponent::ComputedPropertyId::Property:
       break;
+    case KeyPathPatternComponent::ComputedPropertyId::FunctionDecl:
+      functionCallBack(id.getFunction());
     }
+  }
 
     if (auto equals = getSubscriptIndexEquals())
       functionCallBack(equals);
@@ -3232,7 +3250,8 @@ visitReferencedFunctionsAndMethods(
       functionCallBack(hash);
 
     break;
-  }
+
+  case KeyPathPatternComponent::Kind::Method:
   case KeyPathPatternComponent::Kind::StoredProperty:
   case KeyPathPatternComponent::Kind::OptionalChain:
   case KeyPathPatternComponent::Kind::OptionalForce:

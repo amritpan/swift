@@ -530,6 +530,9 @@ void verifyKeyPathComponent(SILModule &M,
     
     break;
   }
+  case KeyPathPatternComponent::Kind::Method: {
+    break;
+  }
   case KeyPathPatternComponent::Kind::OptionalChain: {
     require(baseTy->getOptionalObjectType()->isEqual(componentTy),
             "chaining component should unwrap optional");
@@ -5859,6 +5862,7 @@ public:
         switch (component.getKind()) {
         case KeyPathPatternComponent::Kind::GettableProperty:
         case KeyPathPatternComponent::Kind::SettableProperty:
+        case KeyPathPatternComponent::Kind::Method:
           hasIndices = !component.getSubscriptIndices().empty();
           break;
         

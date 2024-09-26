@@ -831,6 +831,8 @@ SILSerializer::writeKeyPathPatternComponent(
         (unsigned)KeyPathComputedComponentIdKindEncoding::Function);
       ListOfValues.push_back(addSILFunctionRef(id.getFunction()));
       break;
+    case KeyPathPatternComponent::ComputedPropertyId::FunctionDecl:
+      break;
     case KeyPathPatternComponent::ComputedPropertyId::DeclRef:
       ListOfValues.push_back(
         (unsigned)KeyPathComputedComponentIdKindEncoding::DeclRef);
@@ -882,6 +884,8 @@ SILSerializer::writeKeyPathPatternComponent(
     ListOfValues.push_back(
                   addSILFunctionRef(component.getComputedPropertySetter()));
     handleComputedExternalReferenceAndIndices(component);
+    break;
+  case KeyPathPatternComponent::Kind::Method:
     break;
   case KeyPathPatternComponent::Kind::OptionalChain:
     handleComponentCommon(KeyPathComponentKindEncoding::OptionalChain);
