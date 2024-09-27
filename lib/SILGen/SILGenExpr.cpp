@@ -4267,21 +4267,29 @@ KeyPathPatternComponent SILGenModule::emitKeyPathComponentForDecl(
         componentTy = OptionalType::get(componentTy)->getCanonicalType();
       }
 
-      SmallVector<IndexTypePair, 4> indexTypes;
-      lowerKeyPathMemberIndexTypes(*this, indexTypes, decl, subs, expansion,
+      SmallVector<IndexTypePair, 4> argTypes;
+      lowerKeyPathMemberIndexTypes(*this, argTypes, decl, subs, expansion,
                                    needsGenericContext);
 
-      SmallVector<KeyPathPatternComponent::Index, 4> indexPatterns;
-      SILFunction *indexEquals = nullptr, *indexHash = nullptr;
+      SmallVector<KeyPathPatternComponent::Index, 4> argPatterns;
+      SILFunction *argEquals = nullptr, *argHash = nullptr;
       // Property descriptors get their index information from the client.
       if (!forPropertyDescriptor) {
-        lowerKeyPathMemberIndexPatterns(indexPatterns, indexTypes,
-                                        indexHashables, baseOperand);
+        lowerKeyPathMemberIndexPatterns(argPatterns, argTypes, indexHashables,
+                                        baseOperand);
 
         getOrCreateKeyPathEqualsAndHash(
             *this, loc, needsGenericContext ? genericEnv : nullptr, expansion,
-            indexPatterns, indexEquals, indexHash);
+            argPatterns, argEquals, argHash);
       }
+
+      auto func = getOrCreateKeyPathGetter(
+          *this, decl, subs, needsGenericContext ? genericEnv : nullptr,
+          expansion, argTypes, baseTy, componentTy);
+
+      return KeyPathPatternComponent::forMethod(
+          KeyPathPatternComponent::Kind::Method, func, argPatterns, argEquals,
+          argHash, externalDecl, externalSubs, componentTy);
     }
 
   } else if (auto *storage = dyn_cast<AbstractStorageDecl>(decl)) {

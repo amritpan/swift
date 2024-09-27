@@ -3553,7 +3553,8 @@ private:
   }
 
   // Value is the VarDecl* for StoredProperty, the SILFunction* of the
-  // Getter for computed properties or methods, or the Kind for other kinds
+  // Getter for computed properties, the SILFunction of a method, or the Kind
+  // for other kinds
   llvm::PointerIntPair<void *, KindPackingBits, unsigned> ValueAndKind;
   llvm::PointerIntPair<SILFunction *, 2,
                        ComputedPropertyId::KindType> SetterAndIdKind;
@@ -3573,6 +3574,7 @@ private:
   } IndexEquality;
   CanType ComponentType;
   AbstractStorageDecl *ExternalStorage;
+  AbstractFunctionDecl *ExternalFuncStorage;
   SubstitutionMap ExternalSubstitutions;
 
   /// Constructor for stored components
@@ -3600,6 +3602,20 @@ private:
       ExternalStorage(externalStorage),
       ExternalSubstitutions(externalSubstitutions)
   {
+  }
+
+  /// Constructor for method components
+  KeyPathPatternComponent(Kind kind, SILFunction *func, ArrayRef<Index> indices,
+                          SILFunction *argsEqual, SILFunction *argsHash,
+                          AbstractFunctionDecl *externalStorage,
+                          SubstitutionMap externalSubstitutions,
+                          CanType ComponentType)
+      : ValueAndKind(func, PackedFunc),
+        Indices(indices), IndexEquality{argsEqual, argsHash},
+        ComponentType(ComponentType), ExternalFuncStorage(externalStorage),
+        ExternalSubstitutions(externalSubstitutions) {
+    assert((unsigned)kind >= (unsigned)Kind::Method &&
+           "not a method component");
   }
 
   /// Constructor for optional components.
@@ -3707,6 +3723,22 @@ public:
       llvm_unreachable("not a settable computed property");
     case Kind::SettableProperty:
       return SetterAndIdKind.getPointer();
+    }
+    llvm_unreachable("unhandled kind");
+  }
+
+  SILFunction *getFunction() const {
+    switch (getKind()) {
+    case Kind::StoredProperty:
+    case Kind::OptionalChain:
+    case Kind::OptionalForce:
+    case Kind::OptionalWrap:
+    case Kind::GettableProperty:
+    case Kind::SettableProperty:
+    case Kind::TupleElement:
+      llvm_unreachable("not a method");
+    case Kind::Method:
+      return static_cast<SILFunction *>(ValueAndKind.getPointer());
     }
     llvm_unreachable("unhandled kind");
   }
@@ -3844,6 +3876,15 @@ public:
                                    indicesEquals, indicesHash,
                                    externalDecl, externalSubs,
                                    ty);
+  }
+
+  static KeyPathPatternComponent
+  forMethod(Kind kind, SILFunction *func, ArrayRef<Index> args,
+            SILFunction *argsEquals, SILFunction *argsHash,
+            AbstractFunctionDecl *externalDecl, SubstitutionMap externalSubs,
+            CanType ty) {
+    return KeyPathPatternComponent(kind, func, args, argsEquals, argsHash,
+                                   externalDecl, externalSubs, ty);
   }
 
   static KeyPathPatternComponent

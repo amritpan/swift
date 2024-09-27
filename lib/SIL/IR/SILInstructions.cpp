@@ -3244,6 +3244,15 @@ visitReferencedFunctionsAndMethods(
     break;
 
   case KeyPathPatternComponent::Kind::Method:
+    functionCallBack(getFunction());
+
+    if (auto equals = getSubscriptIndexEquals())
+      functionCallBack(equals);
+    if (auto hash = getSubscriptIndexHash())
+      functionCallBack(hash);
+
+    break;
+
   case KeyPathPatternComponent::Kind::StoredProperty:
   case KeyPathPatternComponent::Kind::OptionalChain:
   case KeyPathPatternComponent::Kind::OptionalForce:
