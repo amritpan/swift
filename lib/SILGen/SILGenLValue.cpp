@@ -1895,8 +1895,7 @@ namespace {
       RValue rvalue;
       FormalEvaluationScope scope(SGF);
 
-      auto args =
-          std::move(*this).prepareAccessorArgs(SGF, loc, base, getter);
+      auto args = std::move(*this).prepareAccessorArgs(SGF, loc, base, getter);
 
       rvalue = SGF.emitGetAccessor(
           loc, getter, Substitutions, std::move(args.base), IsSuper,
@@ -2785,10 +2784,8 @@ LValue LValue::forAddress(SGFAccessKind accessKind, ManagedValue address,
 
 void LValue::addMemberComponent(SILGenFunction &SGF, SILLocation loc,
                                 AbstractStorageDecl *storage,
-                                SubstitutionMap subs,
-                                LValueOptions options,
-                                bool isSuper,
-                                SGFAccessKind accessKind,
+                                SubstitutionMap subs, LValueOptions options,
+                                bool isSuper, SGFAccessKind accessKind,
                                 AccessStrategy accessStrategy,
                                 CanType formalRValueType,
                                 PreparedArguments &&indices,
@@ -3369,12 +3366,11 @@ void LValue::addNonMemberVarComponent(
     void emitUsingGetterSetter(SILDeclRef accessor,
                                bool isDirect,
                                LValueTypeData typeData) {
-      LV.add<GetterSetterComponent>(
-          Storage, accessor,
-          /*isSuper=*/false, isDirect, Subs, CanType(), typeData,
-          nullptr, PreparedArguments(),
-          /*isOnSelfParameter=*/false,
-          ActorIso);
+      LV.add<GetterSetterComponent>(Storage, accessor,
+                                    /*isSuper=*/false, isDirect, Subs,
+                                    CanType(), typeData, nullptr,
+                                    PreparedArguments(),
+                                    /*isOnSelfParameter=*/false, ActorIso);
     }
 
     void emitUsingMaterialization(AccessStrategy readStrategy,
@@ -3798,7 +3794,7 @@ static SGFAccessKind getBaseAccessKindForAccessor(SILGenModule &SGM,
   if (accessor->isMutating())
     return SGFAccessKind::ReadWrite;
 
-  auto declRef = SGM.getAccessorDeclRef(accessor, ResilienceExpansion::Minimal);
+  auto declRef = SGM.getFuncDeclRef(accessor, ResilienceExpansion::Minimal);
   if (shouldEmitSelfAsRValue(accessor, baseFormalType, forBorrowExpr)) {
     return SGM.isNonMutatingSelfIndirect(declRef)
                ? SGFAccessKind::OwnedAddressRead
