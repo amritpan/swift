@@ -166,6 +166,8 @@ ManagedValue ArgumentSource::materialize(SILGenFunction &SGF,
                                          AbstractionPattern origFormalType,
                                          SILType destType) && {
   auto substFormalType = getSubstRValueType();
+  auto isWhat =
+      SGF.getLoweredType(origFormalType, substFormalType).getObjectType();
   assert(!destType || destType.getObjectType() ==
                SGF.getLoweredType(origFormalType,
                                   substFormalType).getObjectType());

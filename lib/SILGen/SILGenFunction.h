@@ -2063,6 +2063,17 @@ public:
 
   RValue emitApplyExpr(ApplyExpr *e, SGFContext c);
 
+  ApplyOptions prepareArgsForNormalApply(
+      SILGenFunction &SGF, AbstractFunctionDecl *method, SubstitutionMap subs,
+      RegularLocation loc, PreparedArguments &&argIndices,
+      AbstractionPattern origFormalType, CanSILFunctionType substFnType,
+      SmallVectorImpl<ManagedValue> &uncurriedArgs,
+      std::optional<SILLocation> &uncurriedLoc);
+
+  RValue emitKPMethod(SGFContext C, SILGenFunction &SGF,
+                      AbstractFunctionDecl *method, SubstitutionMap subs,
+                      RegularLocation loc, PreparedArguments &&argIndices);
+
   /// Emit a function application, assuming that the arguments have been
   /// lowered appropriately for the abstraction level but that the
   /// result does need to be turned back into something matching a
@@ -2857,7 +2868,7 @@ public:
 
   /// Returns the SILDeclRef to use for references to the given accessor.
   SILDeclRef getAccessorDeclRef(AccessorDecl *accessor) {
-    return SGM.getAccessorDeclRef(accessor, F.getResilienceExpansion());
+    return SGM.getDeclRef(accessor, F.getResilienceExpansion());
   }
 
   /// Given a lowered pack expansion type, produce a generic environment
