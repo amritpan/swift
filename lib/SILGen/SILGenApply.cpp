@@ -1893,17 +1893,14 @@ static PreparedArguments emitStringLiteralArgs(SILGenFunction &SGF, SILLocation 
 
 /// Emit a raw apply operation, performing no additional lowering of
 /// either the arguments or the result.
-static void emitRawApply(SILGenFunction &SGF,
-                         SILLocation loc,
-                         ManagedValue fn,
-                         SubstitutionMap subs,
-                         ArrayRef<ManagedValue> args,
-                         CanSILFunctionType substFnType,
-                         ApplyOptions options,
+static void emitRawApply(SILGenFunction &SGF, SILLocation loc, ManagedValue fn,
+                         SubstitutionMap subs, ArrayRef<ManagedValue> args,
+                         CanSILFunctionType substFnType, ApplyOptions options,
                          ArrayRef<SILValue> indirectResultAddrs,
                          SILValue indirectErrorAddr,
                          SmallVectorImpl<SILValue> &rawResults,
-                         ExecutorBreadcrumb prevExecutor) {
+                         ExecutorBreadcrumb prevExecutor,
+                         bool isKeyPath = false) {
   // We completely drop the generic signature if all generic parameters were
   // concrete.
   if (subs && subs.getGenericSignature()->areAllParamsConcrete())
@@ -1936,6 +1933,8 @@ static void emitRawApply(SILGenFunction &SGF,
     argValues.push_back(indirectErrorAddr);
 
   auto inputParams = substFnType->getParameters();
+  if (isKeyPath)
+    inputParams = inputParams.drop_front();
   assert(inputParams.size() == args.size());
 
   // Gather the arguments.
@@ -4801,6 +4800,10 @@ public:
       : Loc(loc), Args(std::move(args)),
         NoThrows(isNoThrows), NoAsync(isNoAsync) {
     assert(Args.isValid());
+    llvm::errs() << "\n"
+                 << "Initializing CallSite with arg size: "
+                 << Args.getParams().size() << "\n";
+    auto whatArgs = std::move(Args).getSources();
   }
 
   /// Return the substituted, unlowered AST parameter types of the argument.
@@ -4821,6 +4824,10 @@ public:
     ArgEmitter emitter(SGF, Loc, lowering.Rep, /*yield*/ false,
                        /*isForCoroutine*/ substFnType->isCoroutine(), params,
                        args, delayedArgs, foreign);
+
+    auto whatParams = Args.getParams();
+    auto whatArgs = std::move(Args).getSources();
+
     emitter.emitPreparedArgs(std::move(Args), origFormalType);
   }
 
@@ -4885,6 +4892,9 @@ public:
   /// unevaluated arguments and their formal type
   template<typename...T>
   void addCallSite(T &&...args) {
+    auto &out = llvm::errs();
+    out << "Initializing PreparedArguments from addCallSite.";
+    out << "\n";
     addCallSite(CallSite{std::forward<T>(args)...});
   }
 
@@ -4895,6 +4905,15 @@ public:
 
     PreparedArguments preparedSelf(llvm::ArrayRef<AnyFunctionType::Param>{selfParam});
     preparedSelf.addArbitrary(std::move(self));
+
+    auto &out = llvm::errs();
+    auto params = preparedSelf.getParams();
+    auto args = std::move(preparedSelf).getSources();
+    out << "\n Initializing PreparedArguments from addSelfParam with param: ";
+    params[0].getPlainType()->print(out);
+    out << " and arg: ";
+    args[0].dump(out);
+    out << "\n";
 
     selfArg = CallSite(loc, std::move(preparedSelf));
   }
@@ -4934,13 +4953,6 @@ public:
     return value;
   }
 
-  // Movable, but not copyable.
-  CallEmission(CallEmission &&e) = default;
-
-private:
-  CallEmission(const CallEmission &) = delete;
-  CallEmission &operator=(const CallEmission &) = delete;
-
   /// Emit all of the arguments for a normal apply. This means an apply that
   /// is not:
   ///
@@ -4958,12 +4970,19 @@ private:
       const ForeignInfo &foreign, SmallVectorImpl<ManagedValue> &uncurriedArgs,
       std::optional<SILLocation> &uncurriedLoc);
 
+  RValue applyNormalCall(SGFContext C);
+
+  // Movable, but not copyable.
+  CallEmission(CallEmission &&e) = default;
+
+private:
+  CallEmission(const CallEmission &) = delete;
+  CallEmission &operator=(const CallEmission &) = delete;
+
   RValue
   applySpecializedEmitter(SpecializedEmitter &specializedEmitter, SGFContext C);
 
   RValue applyEnumElementConstructor(SGFContext C);
-
-  RValue applyNormalCall(SGFContext C);
 
   RValue applyFirstLevelCallee(SGFContext C);
 };
@@ -5426,9 +5445,10 @@ ApplyOptions CallEmission::emitArgumentsForNormalApply(
       
       // Claim the foreign "self" with the self param.
       auto siteForeign = ForeignInfo{foreign.self, {}, {}};
+      auto backArgs = args.back();
       std::move(*selfArg).emit(SGF, origFormalType, substFnType, paramLowering,
                                args.back(), delayedArgs,
-                               siteForeign);
+                               siteForeign); // hits assert
 
       origFormalType = origFormalType.getFunctionResultType();
     }
@@ -5581,7 +5601,7 @@ RValue SILGenFunction::emitApply(
     ManagedValue fn, SubstitutionMap subs, ArrayRef<ManagedValue> args,
     const CalleeTypeInfo &calleeTypeInfo, ApplyOptions options,
     SGFContext evalContext,
-    std::optional<ActorIsolation> implicitActorHopTarget) {
+    std::optional<ActorIsolation> implicitActorHopTarget, bool isKeyPath) {
   auto substFnType = calleeTypeInfo.substFnType; // TODO: this has error but should not
 
   // Create the result plan.
@@ -5665,8 +5685,29 @@ RValue SILGenFunction::emitApply(
   }
 
   // Emit the raw application.
-  GenericSignature genericSig =
-    fn.getType().castTo<SILFunctionType>()->getInvocationGenericSignature();
+  // ManagedValue fn cannot be cast to SILFunctionType and is a load instruction
+  // for a NominalType
+  GenericSignature genericSig;
+  //  if (fn.getType().getNominalOrBoundGenericNominal()) {
+  //    // Assume this is a key path method or function, get it as the method.
+  //    //    fnType = extractMethodFromKeyPathComponent(baseSubstValue);
+  //    auto fnType = substFnType->castTo<SILFunctionType>();
+  //    genericSig = fnType->getInvocationGenericSignature();
+  //  } else {
+  //    auto fnType = fn.getType().castTo<SILFunctionType>();
+  //    genericSig = fnType->getInvocationGenericSignature();
+  //  }
+  if (isKeyPath) {
+    // Assume this is a key path method or function, get it as the method.
+    //    fnType = extractMethodFromKeyPathComponent(baseSubstValue);
+    auto fnType = substFnType;
+    genericSig = fnType->getInvocationGenericSignature();
+  } else {
+    auto fnType = fn.getType().castTo<SILFunctionType>();
+    genericSig = fnType->getInvocationGenericSignature();
+  }
+  //  auto fnTy = fn.getType().castTo<SILFunctionType>();
+  //  GenericSignature genericSig = fnTy->getInvocationGenericSignature();
 
   // When calling a closure that's defined in a generic context but does not
   // capture any generic parameters, we will have substitutions, but the
@@ -5735,8 +5776,8 @@ RValue SILGenFunction::emitApply(
   {
     SmallVector<SILValue, 1> rawDirectResults;
     emitRawApply(*this, loc, fn, subs, args, substFnType, options,
-                 indirectResultAddrs, indirectErrorAddr,
-                 rawDirectResults, breadcrumb);
+                 indirectResultAddrs, indirectErrorAddr, rawDirectResults,
+                 breadcrumb, isKeyPath);
     assert(rawDirectResults.size() == 1);
     rawDirectResult = rawDirectResults[0];
   }
@@ -7144,14 +7185,14 @@ SILGenFunction::prepareSubscriptIndices(SILLocation loc,
   return result;
 }
 
-SILDeclRef SILGenModule::getAccessorDeclRef(AccessorDecl *accessor,
-                                            ResilienceExpansion expansion) {
-  auto declRef = SILDeclRef(accessor, SILDeclRef::Kind::Func);
+SILDeclRef SILGenModule::getDeclRef(FuncDecl *funcDecl,
+                                    ResilienceExpansion expansion) {
+  auto declRef = SILDeclRef(funcDecl, SILDeclRef::Kind::Func);
 
-  if (requiresBackDeploymentThunk(accessor, expansion))
+  if (requiresBackDeploymentThunk(funcDecl, expansion))
     return declRef.asBackDeploymentKind(SILDeclRef::BackDeploymentKind::Thunk);
 
-  return declRef.asForeign(requiresForeignEntryPoint(accessor));
+  return declRef.asForeign(requiresForeignEntryPoint(funcDecl));
 }
 
 /// Emit a call to a getter.
@@ -7182,11 +7223,17 @@ RValue SILGenFunction::emitGetAccessor(
   if (hasSelf) {
     emission.addSelfParam(loc, std::move(selfValue),
                          accessType.getParams()[0]);
+
     accessType = cast<AnyFunctionType>(accessType.getResult());
   }
   // Index or () if none.
   if (subscriptIndices.isNull())
     subscriptIndices.emplace({});
+
+  if (!subscriptIndices.isNull()) {
+    auto whatParams = subscriptIndices.getParams();
+    auto whatArgs = std::move(subscriptIndices).getSources();
+  }
 
   emission.addCallSite(loc, std::move(subscriptIndices));
 
@@ -7233,6 +7280,51 @@ void SILGenFunction::emitSetAccessor(SILLocation loc, SILDeclRef set,
   emission.addCallSite(loc, std::move(values));
   // ()
   emission.apply();
+}
+
+/// Emit a call to a keypath method
+RValue SILGenFunction::emitRValueForKeyPathMethod(
+    SILLocation loc, ManagedValue base, CanType baseType,
+    AbstractFunctionDecl *method, PreparedArguments &&methodArgs,
+    SubstitutionMap subs, SGFContext C) {
+
+  FormalEvaluationScope writebackScope(*this);
+  RValue selfRValue(*this, loc, baseType, base);
+  ArgumentSource selfArg(loc, std::move(selfRValue));
+
+  // Callee callee = Callee::forDirect(
+  //  emitClosureValue
+  //  emitRValueforDecl
+  //  getMethodDecl to find where method
+
+  std::optional<Callee> callee;
+  if (isa<ProtocolDecl>(method->getMethodDecl)) {
+    callee.emplace(Callee::forWitnessMethod(*this, selfArg.getSubstRValueType(),
+                                            SILDeclRef(method), subs, loc));
+  } else if (getMethodDispatch(method) == MethodDispatch::Class) {
+    callee.emplace(
+        Callee::forClassMethod(*this, SILDeclRef(method), subs, loc));
+  } else {
+    callee.emplace(Callee::forDirect(*this, SILDeclRef(method), subs, loc));
+  }
+  //  Callee callee = emitSpecializedAccessorFunctionRef(
+  //      *this, loc, SILDeclRef(method), subs, selfArgSource, false, true,
+  //      false);
+
+  // Form the call emission
+  CallEmission emission(*this, std::move(*callee), std::move(writebackScope));
+
+  // Self
+  emission.addSelfParam(loc, std::move(selfArg), methodArgs.getParams()[0]);
+
+  // Arguments
+  if (!methodArgs.isNull()) {
+    auto whatParams = methodArgs.getParams();
+    auto whatArgs = std::move(methodArgs).getSources();
+    emission.addCallSite(loc, std::move(methodArgs));
+  }
+
+  return emission.apply(C);
 }
 
 /// Emit a call to an addressor.

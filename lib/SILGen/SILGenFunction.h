@@ -1867,6 +1867,12 @@ public:
                        ArgumentSource &&value,
                        bool isOnSelfParameter);
 
+  RValue emitRValueForKeyPathMethod(SILLocation loc, ManagedValue base,
+                                    CanType baseFormalType,
+                                    AbstractFunctionDecl *method,
+                                    PreparedArguments &&methodArgs,
+                                    SubstitutionMap subs, SGFContext C);
+
   ManagedValue emitAsyncLetStart(SILLocation loc,
                                  SILValue taskOptions,
                                  AbstractClosureExpr *asyncLetEntryPoint,
@@ -2111,7 +2117,8 @@ public:
                    ArrayRef<ManagedValue> args,
                    const CalleeTypeInfo &calleeTypeInfo, ApplyOptions options,
                    SGFContext evalContext,
-                   std::optional<ActorIsolation> implicitActorHopTarget);
+                   std::optional<ActorIsolation> implicitActorHopTarget,
+                   bool isKeyPath = false);
 
   RValue emitApplyOfDefaultArgGenerator(SILLocation loc,
                                         ConcreteDeclRef defaultArgsOwner,
@@ -2898,7 +2905,7 @@ public:
 
   /// Returns the SILDeclRef to use for references to the given accessor.
   SILDeclRef getAccessorDeclRef(AccessorDecl *accessor) {
-    return SGM.getAccessorDeclRef(accessor, F.getResilienceExpansion());
+    return SGM.getDeclRef(accessor, F.getResilienceExpansion());
   }
 
   /// Given a lowered pack expansion type, produce a generic environment
