@@ -3254,6 +3254,7 @@ static PreparedArguments loadIndexValuesForKeyPathComponent(
   }
 
   assert(indexValues.isValid());
+  auto argSources = std::move(indexValues).getSources().size();
   return indexValues;
 }
 
@@ -3417,6 +3418,10 @@ static SILFunction *getOrCreateKeyPathGetter(SILGenModule &SGM,
   auto subscriptIndices =
     loadIndexValuesForKeyPathComponent(subSGF, loc, property,
                                        indexes, indexPtrArg);
+  if (!subscriptIndices.isNull()) {
+    auto whatParams = subscriptIndices.getParams();
+    auto whatArgs = std::move(subscriptIndices).getSources();
+  }
 
   ManagedValue resultSubst;
   {
@@ -3806,23 +3811,9 @@ static SILFunction *getOrCreateKeyPathMethod(
   {
     RValue resultRValue;
 
-    // Evaluate the arguments.
-    SmallVector<ManagedValue, 4> uncurriedArgs;
-    std::optional<SILLocation> uncurriedLoc;
-    ApplyOptions options = subSGF.prepareArgsForNormalApply(
-        subSGF, method, subs, loc, std::move(preparedArgs),
-        AbstractionPattern::getOpaque(), signature, uncurriedArgs,
-        uncurriedLoc);
-
-    CalleeTypeInfo calleeTypeInfo(signature, AbstractionPattern::getOpaque(),
-                                  methodType, std::nullopt, std::nullopt,
-                                  ImportAsMemberStatus());
-    auto resultPlan = ResultPlanBuilder::computeResultPlan(
-        subSGF, calleeTypeInfo, loc, SGFContext());
-
-    resultRValue = subSGF.emitApply(
-        std::move(resultPlan), std::move(scope), loc, baseSubstValue, subs,
-        uncurriedArgs, calleeTypeInfo, options, SGFContext(), std::nullopt);
+    resultRValue = subSGF.emitRValueForKeyPathMethod(
+        loc, baseSubstValue, baseType, method, std::move(preparedArgs), subs,
+        SGFContext());
 
     resultSubst = std::move(resultRValue).getAsSingleValue(subSGF, loc);
   }

@@ -1896,6 +1896,10 @@ namespace {
 
       auto args =
           std::move(*this).prepareAccessorArgs(SGF, loc, base, getter);
+      if (!args.Indices.isNull()) {
+        auto whatParams = args.Indices.getParams();
+        auto whatArgs = std::move(args.Indices).getSources();
+      }
 
       rvalue = SGF.emitGetAccessor(
           loc, getter, Substitutions, std::move(args.base), IsSuper,
@@ -2783,10 +2787,8 @@ LValue LValue::forAddress(SGFAccessKind accessKind, ManagedValue address,
 }
 
 void LValue::addMemberComponent(SILGenFunction &SGF, SILLocation loc,
-                                AbstractStorageDecl *storage,
-                                SubstitutionMap subs,
-                                LValueOptions options,
-                                bool isSuper,
+                                ValueDecl *storage, SubstitutionMap subs,
+                                LValueOptions options, bool isSuper,
                                 SGFAccessKind accessKind,
                                 AccessStrategy accessStrategy,
                                 CanType formalRValueType,
@@ -2796,13 +2798,87 @@ void LValue::addMemberComponent(SILGenFunction &SGF, SILLocation loc,
     assert(indices.isNull());
     addMemberVarComponent(SGF, loc, var, subs, options, isSuper,
                           accessKind, accessStrategy, formalRValueType);
-  } else {
-    auto subscript = cast<SubscriptDecl>(storage);
+  } else if (auto subscript = cast<SubscriptDecl>(storage)) {
     addMemberSubscriptComponent(SGF, loc, subscript, subs, options, isSuper,
                                 accessKind, accessStrategy, formalRValueType,
                                 std::move(indices), argListForDiagnostics);
+  } else {
+    auto method = cast<FuncDecl>(storage);
+    //    addMemberMethodComponent(SGF, loc, method, subs, options, isSuper,
+    //                             accessKind, formalRValueType,
+    //                             std::move(indices), argListForDiagnostics);
   }
 }
+
+// void LValue::addMemberMethodComponent(
+//     SILGenFunction &SGF, SILLocation loc, AbstractFunctionDecl *method,
+//     SubstitutionMap substitutions, LValueOptions options, bool isSuper,
+//     SGFAccessKind accessKind, CanType methodType,
+//     PreparedArguments &&methodArgs, ArgumentList *argListForDiagnostics) {
+//
+//   struct MemberMethodAccessEmitter
+//       : MemberStorageAccessEmitter<MemberMethodAccessEmitter,
+//                                    AbstractFunctionDecl> {
+//
+//     using MemberStorageAccessEmitter::MemberStorageAccessEmitter;
+//
+//     // Methods do not use storage access, so these functions are unreachable
+//     void emitUsingStorage(LValueTypeData typeData) {
+//       llvm_unreachable("methods do not have storage access");
+//     }
+//
+//     void emitUsingDistributedThunk() {
+//       llvm_unreachable("methods cannot be accessed via a distributed thunk");
+//     }
+//
+//     // Handle the method call ala emitRValueForKeyPathMethod
+//     void emitUsingDirect() {
+//       auto &SGF = getSGF();
+//
+//       // Set up self argument
+//       RValue selfRValue(SGF, getLoc(), getTypeData().SubstFormalType,
+//                         getBaseValue());
+//       ArgumentSource selfArgSource(getLoc(), std::move(selfRValue));
+//
+//       Callee callee = SGF.emitSpecializedAccessorFunctionRef(
+//           SGF, getLoc(), SILDeclRef(getDecl()), getSubstitutions(),
+//           selfArgSource,
+//           /*isSuper=*/getIsSuper(), /*isDirectUse=*/true,
+//           /*isOnSelfParameter=*/false);
+//
+//       CallEmission emission(SGF, std::move(callee),
+//                             SGF.FormalEvaluationScope(getSGF()));
+//
+//       // Add self parameter and additional arguments if any
+//       emission.addSelfParam(getLoc(), std::move(selfArgSource),
+//                             getFunctionArgs().getParams()[0]);
+//       if (!methodArgs.isNull()) {
+//         emission.addCallSite(getLoc(), std::move(methodArgs));
+//       }
+//
+//       // Apply method call
+//       RValue result = emission.apply(SGFContext());
+//       getLValue().setSingleResult(std::move(result));
+//     }
+//   };
+//
+//   // Set up for the LValue component
+//   LValueTypeData typeData = {accessKind, AbstractionPattern(methodType),
+//                              methodType,
+//                              SGF.getLoweredType(methodType).getASTType()};
+//
+//   // Emitter for the method
+//   MemberMethodAccessEmitter emitter(
+//       SGF, loc, method, substitutions, isSuper, accessKind, methodType,
+//       options, *this, argListForDiagnostics, std::move(methodArgs),
+//       /*isOnSelfParameter=*/false, /*actorIsolation=*/std::nullopt);
+//
+//   // Use direct access strategy? Methods are generally accessed directly?
+////  AccessStrategy strategy = AccessStrategy::DirectToAccessor;
+////  emitter.emitUsingStrategy(strategy);
+//
+//  emitter.emitUsingDirect();
+//}
 
 void LValue::addOrigToSubstComponent(SILType loweredSubstType) {
   loweredSubstType = loweredSubstType.getObjectType();
@@ -5288,6 +5364,8 @@ RValue SILGenFunction::emitLoadOfLValue(SILLocation loc, LValue &&src,
       result = RValue(*this, loc, substFormalType, projection);
     } else {
       // If the last component is logical, emit a get.
+      // Note: Keypath subscripts are logical. Keypath methods are also logical
+      // so the code passes through here.
       result = std::move(component.asLogical()).get(*this, loc, addr, C);
     }
   } // End the evaluation scope before any hop back to the current executor.
@@ -5340,6 +5418,7 @@ RValue SILGenFunction::emitRValueForStorageLoad(
                           std::move(subscriptIndices),
                           /*index for diagnostics*/ nullptr);
 
+    // NOTE: KeyPath getters/setters return here
     return emitLoadOfLValue(loc, std::move(lv), C, isBaseGuaranteed);
   }
 

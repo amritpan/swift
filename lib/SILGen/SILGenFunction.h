@@ -1877,6 +1877,13 @@ public:
                        ArgumentSource &&value,
                        bool isOnSelfParameter);
 
+  RValue emitRValueForKeyPathMethod(SILLocation loc, ManagedValue base,
+                                    CanType baseFormalType,
+                                    AbstractFunctionDecl *method,
+                                    PreparedArguments &&methodArgs,
+                                    SubstitutionMap substitutions,
+                                    SGFContext C);
+
   ManagedValue emitAsyncLetStart(SILLocation loc,
                                  SILValue taskOptions,
                                  AbstractClosureExpr *asyncLetEntryPoint,
@@ -2112,17 +2119,6 @@ public:
 
   RValue emitApplyExpr(ApplyExpr *e, SGFContext c);
 
-  ApplyOptions prepareArgsForNormalApply(
-      SILGenFunction &SGF, AbstractFunctionDecl *method, SubstitutionMap subs,
-      RegularLocation loc, PreparedArguments &&argIndices,
-      AbstractionPattern origFormalType, CanSILFunctionType substFnType,
-      SmallVectorImpl<ManagedValue> &uncurriedArgs,
-      std::optional<SILLocation> &uncurriedLoc);
-
-  RValue emitKPMethod(SGFContext C, SILGenFunction &SGF,
-                      AbstractFunctionDecl *method, SubstitutionMap subs,
-                      RegularLocation loc, PreparedArguments &&argIndices);
-
   /// Emit a function application, assuming that the arguments have been
   /// lowered appropriately for the abstraction level but that the
   /// result does need to be turned back into something matching a
@@ -2132,7 +2128,8 @@ public:
                    ArrayRef<ManagedValue> args,
                    const CalleeTypeInfo &calleeTypeInfo, ApplyOptions options,
                    SGFContext evalContext,
-                   std::optional<ActorIsolation> implicitActorHopTarget);
+                   std::optional<ActorIsolation> implicitActorHopTarget,
+                   bool isKeyPath = false);
 
   RValue emitApplyOfDefaultArgGenerator(SILLocation loc,
                                         ConcreteDeclRef defaultArgsOwner,

@@ -457,14 +457,11 @@ public:
 
   /// Add a member component to the access path of this lvalue.
   void addMemberComponent(SILGenFunction &SGF, SILLocation loc,
-                          AbstractStorageDecl *storage,
-                          SubstitutionMap subs,
-                          LValueOptions options,
-                          bool isSuper,
+                          ValueDecl *storage, SubstitutionMap subs,
+                          LValueOptions options, bool isSuper,
                           SGFAccessKind accessKind,
                           AccessStrategy accessStrategy,
-                          CanType formalRValueType,
-                          PreparedArguments &&indices,
+                          CanType formalRValueType, PreparedArguments &&indices,
                           ArgumentList *argListForDiagnostics);
 
   void
@@ -482,6 +479,14 @@ public:
       CanType formalRValueType, PreparedArguments &&indices,
       ArgumentList *argListForDiagnostics, bool isOnSelfParameter = false,
       std::optional<ActorIsolation> actorIso = std::nullopt);
+
+  void addMemberMethodComponent(SILGenFunction &SGF, SILLocation loc,
+                                AbstractFunctionDecl *method,
+                                SubstitutionMap substitutions,
+                                LValueOptions options, bool isSuper,
+                                SGFAccessKind accessKind, CanType methodType,
+                                PreparedArguments &&methodArgs,
+                                ArgumentList *argListForDiagnostics);
 
   /// Add a subst-to-orig reabstraction component.  That is, given
   /// that this l-value trafficks in values following the substituted
