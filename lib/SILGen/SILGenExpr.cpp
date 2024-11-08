@@ -4265,14 +4265,32 @@ SILGenModule::emitKeyPathComponentForDecl(SILLocation loc,
       componentTy = var->getValueInterfaceType()->getCanonicalType();
       ASSERT(!componentTy->hasTypeParameter());
     } else {
+      if (var->getDeclContext()->getSelfProtocolDecl()) {
+        printf("Self ");
+      }
+      if (baseTy->isExistentialType()) {
+        printf("isExistentialType ");
+      }
+      if (baseTy->is<ExistentialMetatypeType>()) {
+        printf("ExistentialMetatypeType ");
+      }
+      if (baseTy->is<AnyMetatypeType>()) {
+        printf("AnyMetatypeType ");
+      }
+      //      if (isAnyExistentialTypeImpl(baseTy)) {
+      //        printf("isAnyExistentialTypeImpl");
+      //      }
       // The mapTypeIntoContext() / mapTypeOutOfContext() dance is there
       // to handle the case where baseTy being a type parameter subject
       // to a superclass requirement.
-      componentTy = var->getValueInterfaceType().subst(
-        GenericEnvironment::mapTypeIntoContext(genericEnv, baseTy)
-          ->getContextSubstitutionMap(var->getDeclContext()))
-          ->mapTypeOutOfContext()
-          ->getCanonicalType();
+      //        componentTy = var->getValueInterfaceType()
+      //                .subst(
+      //                    GenericEnvironment::mapTypeIntoContext(genericEnv,
+      //                    baseTy)
+      //                        ->getContextSubstitutionMap(var->getDeclContext()))
+      //                ->mapTypeOutOfContext()
+      //                ->getCanonicalType();
+      componentTy = var->getValueInterfaceType()->getCanonicalType();
     }
 
     // The component type for an @objc optional requirement needs to be
