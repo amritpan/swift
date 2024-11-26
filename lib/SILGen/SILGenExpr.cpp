@@ -4320,6 +4320,7 @@ KeyPathPatternComponent SILGenModule::emitKeyPathComponentForDecl(
 
     /// Returns true if a key path component for the given property or
     /// subscript should be externally referenced.
+    SILDeclRef representative;
     auto shouldUseExternalKeyPathComponent = [&]() -> bool {
       // The property descriptor has the canonical key path component
       // information so doesn't have to refer to another external descriptor.
@@ -4358,8 +4359,7 @@ KeyPathPatternComponent SILGenModule::emitKeyPathComponentForDecl(
       // storage.
       // Properties that are not public don't need property descriptors
       // either.
-      auto representative =
-          getFuncDeclRef(dyn_cast<FuncDecl>(baseDecl), expansion);
+      representative = getFuncDeclRef(dyn_cast<FuncDecl>(baseDecl), expansion);
       if (representative.isForeign)
         return false;
 
@@ -4442,6 +4442,10 @@ KeyPathPatternComponent SILGenModule::emitKeyPathComponentForDecl(
       auto func = getOrCreateKeyPathMethod(
           *this, decl, subs, needsGenericContext ? genericEnv : nullptr,
           expansion, argTypes, baseTy, componentTy);
+
+      return KeyPathPatternComponent::forMethod(
+          representative, func, argPatterns, argEquals, argHash, externalDecl,
+          externalSubs, componentTy);
     }
 
   } else if (auto *storage = dyn_cast<AbstractStorageDecl>(decl)) {
