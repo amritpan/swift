@@ -1845,8 +1845,9 @@ public:
                                 const FunctionTypeInfo &typeContext,
                                 SubstitutionMap subs);
 
-  PreparedArguments prepareIndices(SILLocation loc, ValueDecl *decl,
-                                   SubstitutionMap subs,
+  CanFunctionType prepareStorageType(ValueDecl *decl, SubstitutionMap subs);
+
+  PreparedArguments prepareIndices(SILLocation loc, CanFunctionType substFnType,
                                    AccessStrategy strategy,
                                    ArgumentList *argList);
 

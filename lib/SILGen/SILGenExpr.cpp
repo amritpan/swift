@@ -4303,46 +4303,41 @@ KeyPathPatternComponent SILGenModule::emitKeyPathComponentForDecl(
 
     AbstractFunctionDecl *externalDecl = nullptr;
     SubstitutionMap externalSubs;
+    CanType componentTy;
+    auto methodTy = decl->getInterfaceType()->castTo<AnyFunctionType>();
+    // Otherwise, component type is method type without Self.
     auto methodResTy = decl->getInterfaceType()->castTo<AnyFunctionType>();
     if (auto genMethodTy = methodResTy->getAs<GenericFunctionType>())
       methodResTy = genMethodTy->substGenericArgs(subs);
     auto methodInterfaceTy = cast<AnyFunctionType>(
         methodResTy->mapTypeOutOfContext()->getCanonicalType());
-    auto componentTy = methodInterfaceTy.getResult();
+    componentTy = methodInterfaceTy.getResult();
 
-    if (decl->getAttrs().hasAttribute<OptionalAttr>()) {
-      // The component type for an @objc optional requirement needs to be
-      // wrapped in an optional
-      componentTy = OptionalType::get(componentTy)->getCanonicalType();
-      }
+    SmallVector<IndexTypePair, 4> argTypes;
+    lowerKeyPathMemberIndexTypes(*this, argTypes, decl, subs, expansion,
+                                 needsGenericContext);
 
-      SmallVector<IndexTypePair, 4> argTypes;
-      lowerKeyPathMemberIndexTypes(*this, argTypes, decl, subs, expansion,
-                                   needsGenericContext);
+    SmallVector<KeyPathPatternComponent::Index, 4> argPatterns;
+    SILFunction *argEquals = nullptr, *argHash = nullptr;
+    lowerKeyPathMemberIndexPatterns(argPatterns, argTypes, indexHashables,
+                                    baseOperand);
 
-      SmallVector<KeyPathPatternComponent::Index, 4> argPatterns;
-      SILFunction *argEquals = nullptr, *argHash = nullptr;
-      lowerKeyPathMemberIndexPatterns(argPatterns, argTypes, indexHashables,
-                                      baseOperand);
+    getOrCreateKeyPathEqualsAndHash(*this, loc,
+                                    needsGenericContext ? genericEnv : nullptr,
+                                    expansion, argPatterns, argEquals, argHash);
 
-      getOrCreateKeyPathEqualsAndHash(
-          *this, loc, needsGenericContext ? genericEnv : nullptr, expansion,
-          argPatterns, argEquals, argHash);
+    auto representative = SILDeclRef(storage, SILDeclRef::Kind::Func,
+                                     /*isForeign*/ storage->isImportAsMember());
+    auto id = getFunction(representative, NotForDefinition);
 
-      auto representative =
-          SILDeclRef(storage, SILDeclRef::Kind::Func,
-                     /*isForeign*/ storage->isImportAsMember());
-      auto id = getFunction(representative, NotForDefinition);
+    auto func = getOrCreateKeyPathMethod(
+        *this, storage, subs, needsGenericContext ? genericEnv : nullptr,
+        expansion, argTypes, baseTy, componentTy);
 
-      auto func = getOrCreateKeyPathMethod(
-          *this, storage, subs, needsGenericContext ? genericEnv : nullptr,
-          expansion, argTypes, baseTy, componentTy);
-
-      auto argPatternsCopy = getASTContext().AllocateCopy(argPatterns);
-      return KeyPathPatternComponent::forMethod(
-          id, func, argPatternsCopy, argEquals, argHash, externalDecl,
-          externalSubs, componentTy);
-
+    auto argPatternsCopy = getASTContext().AllocateCopy(argPatterns);
+    return KeyPathPatternComponent::forMethod(id, func, argPatternsCopy,
+                                              argEquals, argHash, externalDecl,
+                                              externalSubs, componentTy);
   } else if (auto *storage = dyn_cast<AbstractStorageDecl>(decl)) {
     auto baseDecl = storage;
 
@@ -4602,7 +4597,9 @@ RValue RValueEmitter::visitKeyPathExpr(KeyPathExpr *E, SGFContext C) {
 
       // If method is applied, get args from subsequent Apply component.
       auto argComponent = components[i];
-      if (auto func = dyn_cast<FuncDecl>(decl)) {
+      if (auto func = dyn_cast<FuncDecl>(decl);
+          func && i + 1 < components.size() &&
+          components[i + 1].getKind() == KeyPathExpr::Component::Kind::Apply) {
         argComponent = components[i + 1];
       }
 
@@ -4614,12 +4611,12 @@ RValue RValueEmitter::visitKeyPathExpr(KeyPathExpr *E, SGFContext C) {
           argComponent.getIndexHashableConformances(), baseTy, SGF.FunctionDC,
           /*for descriptor*/ false));
       baseTy = loweredComponents.back().getComponentType();
-      if (kind == KeyPathExpr::Component::Kind::Member)
+      if (kind == KeyPathExpr::Component::Kind::Member &&
+          !dyn_cast<FuncDecl>(decl))
         break;
 
-      auto subscript = cast<SubscriptDecl>(decl);
       auto loweredArgs = SGF.emitKeyPathOperands(
-          E, subscript, component.getDeclRef().getSubstitutions(),
+          E, decl, component.getDeclRef().getSubstitutions(),
           argComponent.getArgs());
 
       for (auto &arg : loweredArgs) {
@@ -4630,7 +4627,7 @@ RValue RValueEmitter::visitKeyPathExpr(KeyPathExpr *E, SGFContext C) {
     }
 
     case KeyPathExpr::Component::Kind::Apply: {
-      // Apply arguments for resolved methods are handled above in
+      // Apply arguments for methods are handled above in
       // Component::Kind::Member
       break;
     }
@@ -4697,7 +4694,7 @@ RValue RValueEmitter::visitKeyPathExpr(KeyPathExpr *E, SGFContext C) {
   if (auto objcExpr = dyn_cast_or_null<StringLiteralExpr>
                                                 (E->getObjCStringLiteralExpr()))
     objcString = objcExpr->getValue();
-  
+
   auto pattern = KeyPathPattern::get(SGF.SGM.M,
                                      needsGenericContext
                                        ? SGF.F.getLoweredFunctionType()
@@ -4713,6 +4710,7 @@ RValue RValueEmitter::visitKeyPathExpr(KeyPathExpr *E, SGFContext C) {
                                      operands,
                                      loweredTy);
   auto value = SGF.emitManagedRValueWithCleanup(keyPath);
+
   return RValue(SGF, E, value);
 }
 
