@@ -3671,10 +3671,9 @@ public:
         return Kind::SettableProperty;
       }
 
-      auto declRef =
-          ComputedPropertyId(IdValue, SetterAndIdKind.getInt()).getDeclRef();
-      if (auto funcDecl = declRef.getFuncDecl()) {
-        printf("\n getKind: I'm a method! \n");
+      auto computedId = ComputedPropertyId(IdValue, SetterAndIdKind.getInt());
+      if (computedId.getKind() == ComputedPropertyId::DeclRef &&
+          computedId.getDeclRef().isFunc()) {
         return Kind::Method;
       }
 
