@@ -1067,11 +1067,10 @@ public:
   /// \param subscript - The subscript decl who's arguments are being lowered.
   /// \param subs - Used to get subscript function type and to substitute generic args.
   /// \param argList - The argument list of the subscript.
-  SmallVector<ManagedValue, 4>
-  emitKeyPathSubscriptOperands(SILLocation loc,
-                               SubscriptDecl *subscript,
-                               SubstitutionMap subs,
-                               ArgumentList *argList);
+  SmallVector<ManagedValue, 4> emitKeyPathOperands(SILLocation loc,
+                                                   ValueDecl *decl,
+                                                   SubstitutionMap subs,
+                                                   ArgumentList *argList);
 
   /// Convert a block to a native function with a thunk.
   ManagedValue emitBlockToFunc(SILLocation loc,
@@ -1842,11 +1841,11 @@ public:
                                 const FunctionTypeInfo &typeContext,
                                 SubstitutionMap subs);
 
-  PreparedArguments prepareSubscriptIndices(SILLocation loc,
-                                            SubscriptDecl *subscript,
-                                            SubstitutionMap subs,
-                                            AccessStrategy strategy,
-                                            ArgumentList *argList);
+  CanFunctionType prepareStorageType(ValueDecl *decl, SubstitutionMap subs);
+
+  PreparedArguments prepareIndices(SILLocation loc, CanFunctionType substFnType,
+                                   AccessStrategy strategy,
+                                   ArgumentList *argList);
 
   ArgumentSource prepareAccessorBaseArg(SILLocation loc, ManagedValue base,
                                         CanType baseFormalType,
