@@ -3708,13 +3708,14 @@ static SILFunction *getOrCreateKeyPathMethod(
 
     // Get the result type of the method for lowering.
     auto funcTy = method->getInterfaceType()->castTo<AnyFunctionType>();
-    auto funcResultTy =
+    auto funcResultTy = funcTy->getResult()->getAs<AnyFunctionType>();
+    auto funcResultTy2 =
         funcTy->getResult()->getAs<AnyFunctionType>()->getResult();
 
     loweredBaseTy = SGM.Types.getLoweredRValueType(
         TypeExpansionContext::minimal(), opaque, baseType);
     loweredMethodTy = SGM.Types.getLoweredRValueType(
-        TypeExpansionContext::minimal(), opaque, funcResultTy);
+        TypeExpansionContext::minimal(), opaque, funcResultTy2);
 
     auto paramConvention = ParameterConvention::Indirect_In_Guaranteed;
 
@@ -4188,6 +4189,7 @@ getIdForKeyPathComponentComputedProperty(SILGenModule &SGM,
     // TODO: If the getter has shared linkage (say it's synthesized for a
     // Clang-imported thing), we'll need some other sort of
     // stable identifier.
+    auto func = SGM.getFunction(ref, NotForDefinition);
     return SGM.getFunction(ref, NotForDefinition);
   };
 
@@ -4306,7 +4308,7 @@ KeyPathPatternComponent SILGenModule::emitKeyPathComponentForDecl(
     ResilienceExpansion expansion, unsigned &baseOperand,
     bool &needsGenericContext, SubstitutionMap subs, ValueDecl *decl,
     ArrayRef<ProtocolConformanceRef> indexHashables, CanType baseTy,
-    DeclContext *useDC, bool forPropertyDescriptor) {
+    DeclContext *useDC, bool forPropertyDescriptor, bool isApplied) {
   if (auto *storage = dyn_cast<AbstractFunctionDecl>(decl)) {
     auto baseDecl = storage;
 
@@ -4317,9 +4319,10 @@ KeyPathPatternComponent SILGenModule::emitKeyPathComponentForDecl(
         baseDecl = baseDecl->getOverriddenDecl();
     }
 
-    /// Returns true if a key path component for the given property or
-    /// subscript should be externally referenced.
-    SILDeclRef representative;
+    /// Returns true if a key path component for the given method should be
+    /// externally referenced.
+    auto representative = SILDeclRef(storage, SILDeclRef::Kind::Func,
+                                     /*isForeign*/ storage->isImportAsMember());
     auto shouldUseExternalKeyPathComponent = [&]() -> bool {
       // The property descriptor has the canonical key path component
       // information so doesn't have to refer to another external descriptor.
@@ -4409,13 +4412,23 @@ KeyPathPatternComponent SILGenModule::emitKeyPathComponentForDecl(
     }
 
     if (auto decl = dyn_cast<FuncDecl>(storage)) {
-      auto baseMethodTy = decl->getInterfaceType()->castTo<AnyFunctionType>();
-      if (auto genMethodTy = baseMethodTy->getAs<GenericFunctionType>())
-        baseMethodTy = genMethodTy->substGenericArgs(subs);
-      auto baseMethodInterfaceTy = cast<AnyFunctionType>(
-          baseMethodTy->mapTypeOutOfContext()->getCanonicalType());
+      // If method is applied, set component type to method result type.
+      // Otherwise, component type is method type without Self.
+      CanType componentTy;
+      if (isApplied) {
+        auto method = decl->getResultInterfaceType();
+        if (auto genMethodTy = method->getAs<GenericFunctionType>())
+          method = genMethodTy->substGenericArgs(subs);
+        componentTy = method->mapTypeOutOfContext()->getCanonicalType();
+      } else {
+        auto baseMethodTy = decl->getInterfaceType()->castTo<AnyFunctionType>();
+        if (auto genMethodTy = baseMethodTy->getAs<GenericFunctionType>())
+          baseMethodTy = genMethodTy->substGenericArgs(subs);
+        auto baseMethodInterfaceTy = cast<AnyFunctionType>(
+            baseMethodTy->mapTypeOutOfContext()->getCanonicalType());
+        componentTy = baseMethodInterfaceTy.getResult();
+      }
 
-      auto componentTy = baseMethodInterfaceTy.getResult();
       if (decl->getAttrs().hasAttribute<OptionalAttr>()) {
         // The component type for an @objc optional requirement needs to be
         // wrapped in an optional
@@ -4438,15 +4451,18 @@ KeyPathPatternComponent SILGenModule::emitKeyPathComponentForDecl(
             argPatterns, argEquals, argHash);
       }
 
+      // Generate unique id for keypath method component.
+      auto id = getFunction(representative, NotForDefinition);
+
       auto func = getOrCreateKeyPathMethod(
           *this, decl, subs, needsGenericContext ? genericEnv : nullptr,
           expansion, argTypes, baseTy, componentTy);
 
+      auto argPatternsCopy = getASTContext().AllocateCopy(argPatterns);
       return KeyPathPatternComponent::forMethod(
-          representative, func, argPatterns, argEquals, argHash, externalDecl,
+          id, func, argPatternsCopy, argEquals, argHash, externalDecl,
           externalSubs, componentTy);
     }
-
   } else if (auto *storage = dyn_cast<AbstractStorageDecl>(decl)) {
     auto baseDecl = storage;
 
@@ -4704,9 +4720,14 @@ RValue RValueEmitter::visitKeyPathExpr(KeyPathExpr *E, SGFContext C) {
     case KeyPathExpr::Component::Kind::Subscript: {
       auto decl = component.getDeclRef().getDecl();
 
+      // If method is applied, get args from subsequent Apply component.
       auto argComponent = components[i];
-      if (auto func = dyn_cast<FuncDecl>(decl)) {
+      bool isApplied = false;
+      if (auto func = dyn_cast<FuncDecl>(decl);
+          func && i + 1 < components.size() &&
+          components[i + 1].getKind() == KeyPathExpr::Component::Kind::Apply) {
         argComponent = components[i + 1];
+        isApplied = true;
       }
 
       unsigned numOperands = operands.size();
@@ -4715,14 +4736,14 @@ RValue RValueEmitter::visitKeyPathExpr(KeyPathExpr *E, SGFContext C) {
           SGF.F.getResilienceExpansion(), numOperands, needsGenericContext,
           component.getDeclRef().getSubstitutions(), decl,
           argComponent.getIndexHashableConformances(), baseTy, SGF.FunctionDC,
-          /*for descriptor*/ false));
+          /*for descriptor*/ false, /*is applied func*/ isApplied));
       baseTy = loweredComponents.back().getComponentType();
-      if (kind == KeyPathExpr::Component::Kind::Member)
+      if (kind == KeyPathExpr::Component::Kind::Member &&
+          !dyn_cast<FuncDecl>(decl))
         break;
 
-      auto subscript = cast<SubscriptDecl>(decl);
-      auto loweredArgs = SGF.emitKeyPathSubscriptOperands(
-          E, subscript, component.getDeclRef().getSubstitutions(),
+      auto loweredArgs = SGF.emitKeyPathOperands(
+          E, decl, component.getDeclRef().getSubstitutions(),
           argComponent.getArgs());
 
       for (auto &arg : loweredArgs) {
@@ -4733,7 +4754,7 @@ RValue RValueEmitter::visitKeyPathExpr(KeyPathExpr *E, SGFContext C) {
     }
 
     case KeyPathExpr::Component::Kind::Apply: {
-      // Apply arguments for resolved methods are handled above in
+      // Apply arguments for methods are handled above in
       // Component::Kind::Member
       break;
     }
@@ -4800,7 +4821,7 @@ RValue RValueEmitter::visitKeyPathExpr(KeyPathExpr *E, SGFContext C) {
   if (auto objcExpr = dyn_cast_or_null<StringLiteralExpr>
                                                 (E->getObjCStringLiteralExpr()))
     objcString = objcExpr->getValue();
-  
+
   auto pattern = KeyPathPattern::get(SGF.SGM.M,
                                      needsGenericContext
                                        ? SGF.F.getLoweredFunctionType()
@@ -4816,6 +4837,7 @@ RValue RValueEmitter::visitKeyPathExpr(KeyPathExpr *E, SGFContext C) {
                                      operands,
                                      loweredTy);
   auto value = SGF.emitManagedRValueWithCleanup(keyPath);
+
   return RValue(SGF, E, value);
 }
 
