@@ -1259,11 +1259,6 @@ bool AllowInvalidRefInKeyPath::diagnose(const Solution &solution,
                                                      getLocator());
     return failure.diagnose(asNote);
   }
-
-  case RefKind::Initializer: {
-    InvalidMethodRefInKeyPath failure(solution, Member, getLocator());
-    return failure.diagnose(asNote);
-  }
   }
   llvm_unreachable("covered switch");
 }
@@ -1318,11 +1313,6 @@ AllowInvalidRefInKeyPath::forRef(ConstraintSystem &cs, Type baseType,
     return AllowInvalidRefInKeyPath::create(cs, baseType, RefKind::EnumCase,
                                             member, locator);
   }
-
-  // Referencing initializers in key path is not currently allowed.
-  if (isa<ConstructorDecl>(member))
-    return AllowInvalidRefInKeyPath::create(cs, baseType, RefKind::Initializer,
-                                            member, locator);
 
   if (auto *storage = dyn_cast<AbstractStorageDecl>(member)) {
     // Referencing members with mutating getters in key path is not
