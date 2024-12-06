@@ -5470,11 +5470,11 @@ namespace {
         ConstraintLocator *memberLocator,
         SmallVectorImpl<KeyPathExpr::Component> &components) {
       auto &ctx = cs.getASTContext();
-      auto func = cast<FuncDecl>(overload.choice.getDecl());
       auto fnType = overload.adjustedOpenedType->castTo<FunctionType>();
 
       // Compute substitutions to refer to the method member.
-      auto ref = resolveConcreteDeclRef(func, memberLocator);
+      auto ref =
+          resolveConcreteDeclRef(overload.choice.getDecl(), memberLocator);
 
       // Coerce the indices to the type the subscript expects.
       args = coerceCallArguments(
