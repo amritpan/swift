@@ -9849,6 +9849,18 @@ performMemberLookup(ConstraintKind constraintKind, DeclNameRef memberName,
       hasInstanceMethods = true;
     }
 
+    // If we have an initializer keypath component, allow as candidate.
+    bool isKeyPathContext =
+        memberLocator &&
+        llvm::any_of(memberLocator->getPath(), [](const LocatorPathElt &elt) {
+          return elt.isKeyPathComponent();
+        });
+
+    if (isa<ConstructorDecl>(decl) && isKeyPathContext) {
+      result.addViable(candidate);
+      return;
+    }
+
     // If the invocation's argument expression has a favored type,
     // use that information to determine whether a specific overload for
     // the candidate should be favored.
