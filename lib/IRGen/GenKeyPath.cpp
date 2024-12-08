@@ -753,7 +753,8 @@ emitKeyPathComponent(IRGenModule &IGM,
     llvm_unreachable("not struct or class");
   }
   case KeyPathPatternComponent::Kind::GettableProperty:
-  case KeyPathPatternComponent::Kind::SettableProperty: {
+  case KeyPathPatternComponent::Kind::SettableProperty:
+  case KeyPathPatternComponent::Kind::Method: {
     // If the component references an external property, encode that in a
     // header before the local attempt header, so that we can consult the
     // external descriptor at instantiation time.
@@ -811,7 +812,8 @@ emitKeyPathComponent(IRGenModule &IGM,
         KeyPathComponentHeader::forExternalComponent(externalSubArgs.size())
           .getData());
       auto descriptor = IGM.getAddrOfLLVMVariableOrGOTEquivalent(
-          LinkEntity::forPropertyDescriptor(externalDecl));
+          LinkEntity::forPropertyDescriptor(
+              dyn_cast<AbstractStorageDecl>(externalDecl)));
       fields.addRelativeAddress(descriptor);
       for (auto *arg : externalSubArgs)
         fields.addRelativeAddress(arg);
@@ -1165,6 +1167,7 @@ IRGenModule::getAddrOfKeyPathPattern(KeyPathPattern *pattern,
     switch (component.getKind()) {
     case KeyPathPatternComponent::Kind::GettableProperty:
     case KeyPathPatternComponent::Kind::SettableProperty:
+    case KeyPathPatternComponent::Kind::Method:
       for (auto &index : component.getIndices()) {
         operands[index.Operand].LoweredType = index.LoweredType;
         operands[index.Operand].LastUser = &component;
