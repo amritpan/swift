@@ -3675,10 +3675,12 @@ public:
       // Filter out AccessorDecls like subscript getter/setter to only handle
       // methods.
       auto computedId = ComputedPropertyId(IdValue, SetterAndIdKind.getInt());
-      auto decl = computedId.getDeclRef().getDecl();
-      if (computedId.getKind() == ComputedPropertyId::DeclRef &&
-          dyn_cast<AbstractFunctionDecl>(decl) && !isa<AccessorDecl>(decl)) {
-        return Kind::Method;
+      if (computedId.getKind() == ComputedPropertyId::DeclRef) {
+        auto decl = computedId.getDeclRef().getDecl();
+
+        if (dyn_cast<AbstractFunctionDecl>(decl) && !isa<AccessorDecl>(decl)) {
+          return Kind::Method;
+        }
       }
 
       return Kind::GettableProperty;
