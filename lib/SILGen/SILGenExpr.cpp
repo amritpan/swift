@@ -4184,7 +4184,6 @@ getIdForKeyPathComponentComputedProperty(SILGenModule &SGM,
     // TODO: If the getter has shared linkage (say it's synthesized for a
     // Clang-imported thing), we'll need some other sort of
     // stable identifier.
-    auto func = SGM.getFunction(ref, NotForDefinition);
     return SGM.getFunction(ref, NotForDefinition);
   };
 
