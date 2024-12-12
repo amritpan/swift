@@ -3706,16 +3706,10 @@ static SILFunction *getOrCreateKeyPathMethod(
     CanType loweredBaseTy, loweredMethodTy;
     AbstractionPattern opaque = AbstractionPattern::getOpaque();
 
-    // Get the result type of the method for lowering.
-    auto funcTy = method->getInterfaceType()->castTo<AnyFunctionType>();
-    auto funcResultTy = funcTy->getResult()->getAs<AnyFunctionType>();
-    auto funcResultTy2 =
-        funcTy->getResult()->getAs<AnyFunctionType>()->getResult();
-
     loweredBaseTy = SGM.Types.getLoweredRValueType(
         TypeExpansionContext::minimal(), opaque, baseType);
     loweredMethodTy = SGM.Types.getLoweredRValueType(
-        TypeExpansionContext::minimal(), opaque, funcResultTy2);
+        TypeExpansionContext::minimal(), opaque, methodType);
 
     auto paramConvention = ParameterConvention::Indirect_In_Guaranteed;
 
