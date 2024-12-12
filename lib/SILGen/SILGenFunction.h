@@ -1872,6 +1872,11 @@ public:
                                     PreparedArguments &&methodArgs,
                                     SubstitutionMap subs, SGFContext C);
 
+  RValue emitUnappliedKeyPathMethod(SILLocation loc, ManagedValue base,
+                                    CanType baseType,
+                                    AbstractFunctionDecl *method, Type methodTy,
+                                    SubstitutionMap subs, SGFContext C);
+
   ManagedValue emitAsyncLetStart(SILLocation loc,
                                  SILValue taskOptions,
                                  AbstractClosureExpr *asyncLetEntryPoint,
