@@ -4437,19 +4437,20 @@ KeyPathPatternComponent SILGenModule::emitKeyPathComponentForDecl(
       }
 
       SmallVector<IndexTypePair, 4> argTypes;
-      lowerKeyPathMemberIndexTypes(*this, argTypes, decl, subs, expansion,
-                                   needsGenericContext);
-
       SmallVector<KeyPathPatternComponent::Index, 4> argPatterns;
       SILFunction *argEquals = nullptr, *argHash = nullptr;
-      // Property descriptors get their index information from the client.
-      if (!forPropertyDescriptor) {
-        lowerKeyPathMemberIndexPatterns(argPatterns, argTypes, indexHashables,
-                                        baseOperand);
+      if (isApplied) {
+        lowerKeyPathMemberIndexTypes(*this, argTypes, decl, subs, expansion,
+                                     needsGenericContext);
 
-        getOrCreateKeyPathEqualsAndHash(
-            *this, loc, needsGenericContext ? genericEnv : nullptr, expansion,
-            argPatterns, argEquals, argHash);
+        if (!forPropertyDescriptor) {
+          lowerKeyPathMemberIndexPatterns(argPatterns, argTypes, indexHashables,
+                                          baseOperand);
+
+          getOrCreateKeyPathEqualsAndHash(
+              *this, loc, needsGenericContext ? genericEnv : nullptr, expansion,
+              argPatterns, argEquals, argHash);
+        }
       }
 
       // Generate unique id for keypath method component.
