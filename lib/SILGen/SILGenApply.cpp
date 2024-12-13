@@ -7318,7 +7318,7 @@ RValue SILGenFunction::emitUnappliedKeyPathMethod(
   // Self RValue.
   RValue selfRValue(*this, loc, baseType, base);
 
-  // Resolve callee.
+  // Resolve the callee.
   std::optional<Callee> callee;
   if (isa<ProtocolDecl>(method->getDeclContext())) {
     callee.emplace(Callee::forWitnessMethod(*this, selfRValue.getType(),
@@ -7330,19 +7330,57 @@ RValue SILGenFunction::emitUnappliedKeyPathMethod(
     callee.emplace(Callee::forDirect(*this, SILDeclRef(method), subs, loc));
   }
 
-  // Create a closure.
+  // Create a partial application for the method.
   SILFunction *silFunction = SGM.getFunction(SILDeclRef(method), ForDefinition);
   FunctionRefInst *functionRef = B.createFunctionRef(loc, silFunction);
+
+  // Partially apply the method with the instance.
   ArrayRef<SILValue> args = {base.forward(*this)};
   auto partial = B.createPartialApply(loc, functionRef, subs, args,
                                       ParameterConvention::Direct_Guaranteed);
 
+  // Wrap the result in a managed value.
   auto cleanedResult = emitManagedRValueWithCleanup(partial);
   CanType partialType = methodTy->getCanonicalType();
 
-  // Construct and return the RValue
+  // Construct and return the RValue.
   return RValue(*this, loc, partialType, cleanedResult);
 }
+
+// RValue SILGenFunction::emitUnappliedKeyPathMethod(
+//     SILLocation loc, ManagedValue base, CanType baseType,
+//     AbstractFunctionDecl *method, Type methodTy, SubstitutionMap subs,
+//     SGFContext C) {
+//   FormalEvaluationScope writebackScope(*this);
+//
+//   // Self RValue.
+//   RValue selfRValue(*this, loc, baseType, base);
+//
+//   // Resolve callee.
+//   std::optional<Callee> callee;
+//   if (isa<ProtocolDecl>(method->getDeclContext())) {
+//     callee.emplace(Callee::forWitnessMethod(*this, selfRValue.getType(),
+//                                             SILDeclRef(method), subs, loc));
+//   } else if (getMethodDispatch(method) == MethodDispatch::Class) {
+//     callee.emplace(
+//         Callee::forClassMethod(*this, SILDeclRef(method), subs, loc));
+//   } else {
+//     callee.emplace(Callee::forDirect(*this, SILDeclRef(method), subs, loc));
+//   }
+//
+//   // Create a closure.
+//   SILFunction *silFunction = SGM.getFunction(SILDeclRef(method),
+//   ForDefinition); FunctionRefInst *functionRef = B.createFunctionRef(loc,
+//   silFunction); ArrayRef<SILValue> args = {base.forward(*this)}; auto partial
+//   = B.createPartialApply(loc, functionRef, subs, args,
+//                                       ParameterConvention::Direct_Guaranteed);
+//
+//   auto cleanedResult = emitManagedRValueWithCleanup(partial);
+//   CanType partialType = methodTy->getCanonicalType();
+//
+//   // Construct and return the RValue
+//   return RValue(*this, loc, partialType, cleanedResult);
+// }
 
 /// Emit a call to an addressor.
 ///
