@@ -3870,7 +3870,7 @@ static SILFunction *getOrCreateUnappliedKeypathMethod(
     return SILFunctionType::get(
         genericSig,
         SILFunctionType::ExtInfo().withRepresentation(
-            SILFunctionType::Representation::Thick),
+            SILFunctionType::Representation::KeyPathAccessorGetter),
         SILCoroutineKind::None, ParameterConvention::Direct_Unowned,
         {SILParameterInfo(loweredBaseTy,
                           ParameterConvention::Indirect_In_Guaranteed)},
@@ -3900,17 +3900,47 @@ static SILFunction *getOrCreateUnappliedKeypathMethod(
       subSGF.silConv.getSILType(signature->getParameters()[0], signature,
                                 subSGF.F.getTypeExpansionContext());
   auto baseArg = entry->createFunctionArgument(baseArgTy);
+  auto resultArgTy =
+      subSGF.silConv.getSILType(signature->getSingleResult(), signature,
+                                subSGF.F.getTypeExpansionContext());
+  SILFunctionArgument *resultArg = nullptr;
+  if (SGM.M.useLoweredAddresses()) {
+    resultArg = entry->createFunctionArgument(resultArgTy);
+  }
+
   auto baseSubstValue =
       emitKeyPathRValueBase(subSGF, method, loc, baseArg, baseType, subs);
 
-  subSGF.emitUnappliedKeyPathMethod(loc, baseSubstValue, baseType, method,
-                                    methodType, subs, SGFContext());
+  ManagedValue resultSubst;
+  {
+    RValue resultRValue;
 
+    resultRValue = subSGF.emitUnappliedKeyPathMethod(
+        loc, baseSubstValue, baseType, method, methodType, subs, SGFContext());
+
+    resultSubst = std::move(resultRValue).getAsSingleValue(subSGF, loc);
+  }
+
+  if (resultSubst.getType().getAddressType() != resultArgTy)
+    resultSubst = subSGF.emitSubstToOrigValue(
+        loc, resultSubst, AbstractionPattern::getOpaque(), methodType);
+
+  ArgumentScope scope(subSGF, loc);
+  if (SGM.M.useLoweredAddresses()) {
+    resultSubst.forwardInto(subSGF, loc, resultArg);
+    scope.pop();
+
+    subSGF.B.createReturn(loc, subSGF.emitEmptyTuple(loc));
+  } else {
+    auto result = resultSubst.forward(subSGF);
+    scope.pop();
+    subSGF.B.createReturn(loc, result);
+  }
+
+  SGM.emitLazyConformancesForFunction(thunk);
   llvm::errs() << "\n";
   subSGF.F.dump();
   llvm::errs() << "\n";
-
-  SGM.emitLazyConformancesForFunction(thunk);
   return thunk;
 }
 
@@ -4968,8 +4998,9 @@ RValue RValueEmitter::visitKeyPathExpr(KeyPathExpr *E, SGFContext C) {
           argComponent.getIndexHashableConformances(), baseTy, SGF.FunctionDC,
           /*for descriptor*/ false, /*is applied func*/ isApplied));
       baseTy = loweredComponents.back().getComponentType();
-      if (kind == KeyPathExpr::Component::Kind::Member &&
-          !dyn_cast<FuncDecl>(decl))
+      if ((kind == KeyPathExpr::Component::Kind::Member &&
+           !dyn_cast<FuncDecl>(decl)) ||
+          !isApplied)
         break;
 
       auto loweredArgs = SGF.emitKeyPathOperands(
