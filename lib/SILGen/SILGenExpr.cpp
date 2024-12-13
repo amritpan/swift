@@ -3863,14 +3863,14 @@ static SILFunction *getOrCreateUnappliedKeypathMethod(
         TypeExpansionContext::minimal(), AbstractionPattern::getOpaque(),
         baseType);
     CanType loweredMethodTy = SGM.Types.getLoweredRValueType(
-        TypeExpansionContext::minimal(), AbstractionPattern(methodType),
+        TypeExpansionContext::minimal(), AbstractionPattern::getOpaque(),
         methodType);
 
     // Produces (S) -> (Int) -> Int.
     return SILFunctionType::get(
         genericSig,
         SILFunctionType::ExtInfo().withRepresentation(
-            SILFunctionType::Representation::Thin),
+            SILFunctionType::Representation::KeyPathAccessorGetter),
         SILCoroutineKind::None, ParameterConvention::Direct_Unowned,
         {SILParameterInfo(loweredBaseTy,
                           ParameterConvention::Indirect_In_Guaranteed)},
