@@ -451,7 +451,7 @@ std::string ASTMangler::mangleKeyPathUnappliedMethodThunkHelper(
       appendType(sub->getCanonicalType(), signature);
     }
   }
-  appendOperator("TU");
+  appendOperator("TK");
   if (expansion == ResilienceExpansion::Minimal)
     appendOperator("q");
   return finalize();

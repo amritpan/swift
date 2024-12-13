@@ -3870,7 +3870,7 @@ static SILFunction *getOrCreateUnappliedKeypathMethod(
     return SILFunctionType::get(
         genericSig,
         SILFunctionType::ExtInfo().withRepresentation(
-            SILFunctionType::Representation::KeyPathAccessorGetter),
+            SILFunctionType::Representation::Thin),
         SILCoroutineKind::None, ParameterConvention::Direct_Unowned,
         {SILParameterInfo(loweredBaseTy,
                           ParameterConvention::Indirect_In_Guaranteed)},
@@ -3910,6 +3910,10 @@ static SILFunction *getOrCreateUnappliedKeypathMethod(
 
   auto baseSubstValue =
       emitKeyPathRValueBase(subSGF, method, loc, baseArg, baseType, subs);
+
+  llvm::errs() << "\n";
+  subSGF.F.dump();
+  llvm::errs() << "\n";
 
   ManagedValue resultSubst;
   {
