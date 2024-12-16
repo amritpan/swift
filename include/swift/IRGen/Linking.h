@@ -992,6 +992,13 @@ public:
     return entity;
   }
 
+  static LinkEntity forKeypathMethodDescriptor(AbstractFunctionDecl *decl) {
+    assert(decl->exportsMethodDescriptor());
+    LinkEntity entity;
+    entity.setForDecl(Kind::MethodDescriptor, decl);
+    return entity;
+  }
+
   static LinkEntity forModuleDescriptor(ModuleDecl *decl) {
     LinkEntity entity;
     entity.setForDecl(Kind::ModuleDescriptor, decl);

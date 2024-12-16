@@ -8121,6 +8121,10 @@ public:
   /// method from the given module?
   bool isResilient(ModuleDecl *M, ResilienceExpansion expansion) const;
 
+  /// True if the storage exports a method descriptor for key paths in
+  /// other modules.
+  bool exportsMethodDescriptor();
+
   /// If \p asyncAlternative is set, then compare its parameters to this
   /// (presumed synchronous) function's parameters to find the index of the
   /// completion handler parameter. This should be the only missing

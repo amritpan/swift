@@ -811,9 +811,15 @@ emitKeyPathComponent(IRGenModule &IGM,
       fields.addInt32(
         KeyPathComponentHeader::forExternalComponent(externalSubArgs.size())
           .getData());
-      auto descriptor = IGM.getAddrOfLLVMVariableOrGOTEquivalent(
-          LinkEntity::forPropertyDescriptor(
-              dyn_cast<AbstractStorageDecl>(externalDecl)));
+      ConstantReference descriptor;
+      if (auto *funcDecl = dyn_cast<AbstractFunctionDecl>(externalDecl)) {
+        descriptor = IGM.getAddrOfLLVMVariableOrGOTEquivalent(
+            LinkEntity::forKeypathMethodDescriptor(funcDecl));
+      } else {
+        descriptor = IGM.getAddrOfLLVMVariableOrGOTEquivalent(
+            LinkEntity::forPropertyDescriptor(
+                dyn_cast<AbstractStorageDecl>(externalDecl)));
+      }
       fields.addRelativeAddress(descriptor);
       for (auto *arg : externalSubArgs)
         fields.addRelativeAddress(arg);

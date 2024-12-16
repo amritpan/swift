@@ -453,3 +453,65 @@ bool AbstractStorageDecl::exportsPropertyDescriptor() const {
 
   return true;
 }
+
+bool AbstractFunctionDecl::exportsMethodDescriptor() {
+  // Functions don't have descriptors unless they are part of a type context.
+  if (!getDeclContext()->isTypeContext())
+    return false;
+
+  // Protocol requirements do not need descriptors.
+  if (isa<ProtocolDecl>(getDeclContext()))
+    return false;
+
+  // Static methods in protocol extensions do not need descriptors
+  // since they cannot be resolved dynamically via Any.Type.
+  if (isStatic() && getDeclContext()->getSelfProtocolDecl())
+    return false;
+
+  // Check if this function is a valid key path component.
+  if (!isValidKeyPathComponent())
+    return false;
+
+  // Get appropriate linkage to emit a descriptor.
+  auto *funcDecl = dyn_cast<AbstractFunctionDecl>(this);
+  auto functionLinkage = SILDeclRef(funcDecl).getLinkage(ForDefinition);
+
+  switch (functionLinkage) {
+  case SILLinkage::Public:
+  case SILLinkage::PublicNonABI:
+  case SILLinkage::Package:
+  case SILLinkage::PackageNonABI:
+    // These may require descriptors.
+    break;
+
+  case SILLinkage::Shared:
+  case SILLinkage::Private:
+  case SILLinkage::Hidden:
+    // Private or hidden functions do not need descriptors.
+    return false;
+
+  case SILLinkage::HiddenExternal:
+  case SILLinkage::PublicExternal:
+  case SILLinkage::PackageExternal:
+    llvm_unreachable("Unexpected external linkage for definitions");
+  }
+
+  // Functions that return unsupported key path value types are not valid.
+  auto resultType = getInnermostDeclContext()->mapTypeIntoContext(
+      getInterfaceType()->castTo<AnyFunctionType>()->getResult());
+  if (isUnsupportedKeyPathValueType(resultType))
+    return false;
+
+  // Functions with unsupported parameters do not have descriptors.
+  if (auto funcType = getInterfaceType()->getAs<AnyFunctionType>()) {
+    for (const auto &param : funcType->getParams()) {
+      if (param.isInOut())
+        return false;
+      auto paramType = param.getPlainType();
+      if (isUnsupportedKeyPathValueType(paramType))
+        return false;
+    }
+  }
+
+  return true;
+}
