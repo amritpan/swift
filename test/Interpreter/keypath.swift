@@ -8,6 +8,8 @@
 class MyLabel {
   var text = "label"
   static var isVisible = true
+  func x(val value: Int) -> Int { return value }
+  static func y(val value: Int) -> Int { return value }
 }
 
 class Controller {
@@ -70,16 +72,31 @@ struct Container<V> {
   func useKeyPath<V2: AnyObject>(_ keyPath: KeyPath<V, V2>) -> String {
     return (v[keyPath: keyPath] as! MyLabel).text
   }
+  func invokeKeyPathMethod<V2, R>(
+      _ keyPath: KeyPath<V, V2>,
+      method: KeyPath<V2, (Int) -> R>,
+      arg: Int
+    ) -> R {
+      let instance = v[keyPath: keyPath]
+      return instance[keyPath: method](arg)
+    }
 }
 
 extension Container where V: Controller {
   func test() -> String {
     return useKeyPath(\.label)
   }
+  func testKeyPathMethod() -> Int {
+    let result = invokeKeyPathMethod(\.label, method: \MyLabel.x(val:), arg: 10)
+    print(result)
+    return result
+  }
 }
 
 // CHECK: label
 print(Container(Controller()).test())
+// CHECK: 10
+print(Container(Controller()).testKeyPathMethod())
 
 struct MetatypeContainer<V> {
   var v : V.Type
@@ -92,10 +109,18 @@ struct MetatypeContainer<V> {
     }
     return false
   }
+  func getKeyPathMethodVal() -> Int {
+    if let labelType = v as? MyLabel.Type {
+      return labelType.y(val: 20)
+    }
+    return 0
+  }
 }
 
 // CHECK: true
 print(MetatypeContainer(MyLabel.self).useMetatypeKeyPath())
+// CHECK: 20
+print(MetatypeContainer(MyLabel.self).getKeyPathMethodVal())
 
 public class GenericController<U> {
   init(_ u: U) {
@@ -205,4 +230,32 @@ do {
   }
   // CHECK: true
   print(StaticExample<MyLabel>().isVisible)
+}
+
+do {
+  @dynamicMemberLookup
+  struct InstanceDynamicMemberLookup<T> {
+      var obj: T
+      
+      subscript<U>(dynamicMember member: KeyPath<T, (Int) -> U>) -> (Int) -> U {
+          get { obj[keyPath: member] }
+      }
+  }
+
+  // CHECK: 50
+  let instanceDynamicLookup = InstanceDynamicMemberLookup(obj: MyLabel())
+  print(instanceDynamicLookup.x(50))
+}
+
+do {
+  @dynamicMemberLookup
+  struct StaticDynamicMemberLookup<T> {
+      subscript<U>(dynamicMember keyPath: KeyPath<T.Type, (Int) -> U>) -> (Int) -> U {
+          return T.self[keyPath: keyPath]
+      }
+  }
+
+  // CHECK: 60
+  let staticDynamicLookup = StaticDynamicMemberLookup<MyLabel>()
+  print(staticDynamicLookup.y(60))
 }
