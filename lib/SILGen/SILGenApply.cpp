@@ -7309,6 +7309,37 @@ RValue SILGenFunction::emitRValueForKeyPathMethod(
   return emission.apply(C);
 }
 
+RValue SILGenFunction::emitUnappliedKeyPathMethod(
+    SILLocation loc, ManagedValue base, CanType baseType,
+    AbstractFunctionDecl *method, Type methodTy, PreparedArguments &&methodArgs,
+    SubstitutionMap subs, SGFContext C) {
+  FormalEvaluationScope writebackScope(*this);
+
+  // Self RValue.
+  RValue selfRValue(*this, loc, baseType, base);
+
+  // Resolve the callee.
+  std::optional<Callee> callee;
+  if (isa<ProtocolDecl>(method->getDeclContext())) {
+    callee.emplace(Callee::forWitnessMethod(*this, selfRValue.getType(),
+                                            SILDeclRef(method), subs, loc));
+  } else if (getMethodDispatch(method) == MethodDispatch::Class) {
+    callee.emplace(
+        Callee::forClassMethod(*this, SILDeclRef(method), subs, loc));
+  } else {
+    callee.emplace(Callee::forDirect(*this, SILDeclRef(method), subs, loc));
+  }
+
+  // Partially apply.
+  SILFunction *silMethod = SGM.getFunction(SILDeclRef(method), ForDefinition);
+  FunctionRefInst *methodRef = B.createFunctionRef(loc, silMethod);
+  auto partialMV = B.createPartialApply(loc, methodRef, subs, base,
+                                        ParameterConvention::Direct_Guaranteed);
+
+  CanType partialType = methodTy->getCanonicalType();
+  return RValue(*this, loc, partialType, partialMV);
+}
+
 /// Emit a call to an addressor.
 ///
 /// Returns an l-value managed value.
