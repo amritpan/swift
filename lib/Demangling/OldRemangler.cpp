@@ -2704,6 +2704,12 @@ ManglingError Remangler::mangleKeyPathSetterThunkHelper(Node *node,
   return mangleChildNodes(node, depth + 1);
 }
 
+ManglingError
+Remangler::mangleKeyPathUnappliedMethodThunkHelper(Node *node, unsigned depth) {
+  Buffer << "Tg";
+  return mangleChildNodes(node, depth + 1);
+}
+
 ManglingError Remangler::mangleKeyPathEqualsThunkHelper(Node *node,
                                                         unsigned depth) {
   Buffer << "TH";

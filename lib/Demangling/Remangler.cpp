@@ -3050,6 +3050,11 @@ ManglingError Remangler::mangleKeyPathSetterThunkHelper(Node *node,
   return mangleKeyPathThunkHelper(node, "Tk", depth + 1);
 }
 
+ManglingError
+Remangler::mangleKeyPathUnappliedMethodThunkHelper(Node *node, unsigned depth) {
+  return mangleKeyPathThunkHelper(node, "Tg", depth + 1);
+}
+
 ManglingError Remangler::mangleKeyPathEqualsThunkHelper(Node *node,
                                                         unsigned depth) {
   return mangleKeyPathThunkHelper(node, "TH", depth + 1);
