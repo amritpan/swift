@@ -2903,47 +2903,52 @@ NodePointer Demangler::demangleThunkOrSpecialization() {
       return Thunk;
     }
     case 'g': {
-      NodePointer node = popNode();
-      if (node && node->getKind() == Node::Kind::Type) {
-        // Handle KeyPathUnappliedMethodThunkHelper
-        auto nodeKind = Node::Kind::KeyPathUnappliedMethodThunkHelper;
-
-        bool isSerialized = nextIf('q');
-
-        std::vector<NodePointer> types;
-        do {
-          types.push_back(node);
-          node = popNode();
-        } while (node && node->getKind() == Node::Kind::Type);
-
-        NodePointer result;
-        if (node) {
-          if (node->getKind() == Node::Kind::DependentGenericSignature) {
-            NodePointer decl = popNode();
-            if (!decl)
-              return nullptr;
-            result = createWithChildren(
-                nodeKind, decl, node); // Create with DependentGenericSignature
-          } else {
-            result = createWithChild(nodeKind, node); // Create with Type node
-          }
-        } else {
-          return nullptr;
-        }
-
-        for (auto i = types.rbegin(), e = types.rend(); i != e; ++i) {
-          result->addChild(*i, *this);
-        }
-
-        if (isSerialized) {
-          result->addChild(createNode(Node::Kind::IsSerialized), *this);
-        }
-
-        return result;
-      } else {
-        return demangleGenericSpecialization(Node::Kind::GenericSpecialization,
-                                             nullptr);
-      }
+      //      NodePointer node = popNode();
+      //      char next = peekChar();
+      //      if (next == '\0' || (next == 'q' && nextChar() == '\0')) {
+      //        // Handle KeyPathUnappliedMethodThunkHelper
+      //        auto nodeKind = Node::Kind::KeyPathUnappliedMethodThunkHelper;
+      //
+      //        bool isSerialized = nextIf('q');
+      //
+      //        std::vector<NodePointer> types;
+      //        do {
+      //          types.push_back(node);
+      //          node = popNode();
+      //        } while (node && node->getKind() == Node::Kind::Type);
+      //
+      //        NodePointer result;
+      //        if (node) {
+      //          if (node->getKind() == Node::Kind::DependentGenericSignature)
+      //          {
+      //            NodePointer decl = popNode();
+      //            if (!decl)
+      //              return nullptr;
+      //            result = createWithChildren(
+      //                                        nodeKind, decl, node); // Create
+      //                                        with DependentGenericSignature
+      //          } else {
+      //            result = createWithChild(nodeKind, node); // Create with
+      //            Type node
+      //          }
+      //        } else {
+      //          return nullptr;
+      //        }
+      //
+      //        for (auto i = types.rbegin(), e = types.rend(); i != e; ++i) {
+      //          result->addChild(*i, *this);
+      //        }
+      //
+      //        if (isSerialized) {
+      //          result->addChild(createNode(Node::Kind::IsSerialized), *this);
+      //        }
+      //
+      //        return result;
+      //      } else {
+      return demangleGenericSpecialization(Node::Kind::GenericSpecialization,
+                                           nullptr);
+      //      }
+      //      return nullptr;
     }
     case 'G':
       return demangleGenericSpecialization(Node::Kind::
