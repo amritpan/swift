@@ -4479,8 +4479,16 @@ KeyPathPatternComponent SILGenModule::emitKeyPathComponentForDecl(
           argPatterns, argEquals, argHash);
     }
 
-    auto representative = SILDeclRef(storage, SILDeclRef::Kind::Func,
-                                     /*isForeign*/ storage->isImportAsMember());
+    SILDeclRef representative;
+    if (isa<FuncDecl>(storage)) {
+      representative = SILDeclRef(storage, SILDeclRef::Kind::Func,
+                                  /*isForeign*/ storage->isImportAsMember());
+    } else if (isa<ConstructorDecl>(storage)) {
+      representative = SILDeclRef(storage, SILDeclRef::Kind::Initializer,
+                                  /*isForeign*/ storage->isImportAsMember());
+    } else {
+      llvm_unreachable("Unsupported decl kind");
+    }
     auto id = getFunction(representative, NotForDefinition);
 
     SILFunction *func = nullptr;
