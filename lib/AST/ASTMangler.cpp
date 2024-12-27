@@ -327,7 +327,13 @@ std::string ASTMangler::mangleKeyPathGetterThunkHelper(
     const ValueDecl *decl, GenericSignature signature, CanType baseType,
     SubstitutionMap subs, ResilienceExpansion expansion) {
   beginMangling();
-  appendEntity(decl);
+
+  if (isa<ConstructorDecl>(decl)) {
+    appendConstructorEntity(cast<ConstructorDecl>(decl), false);
+  } else {
+    appendEntity(decl);
+  }
+
   if (signature)
     appendGenericSignature(signature);
   appendType(baseType, signature);
