@@ -1241,11 +1241,6 @@ bool AllowInvalidRefInKeyPath::diagnose(const Solution &solution,
     return failure.diagnose(asNote);
   }
 
-  case RefKind::EnumCase: {
-    InvalidEnumCaseRefInKeyPath failure(solution, Member, getLocator());
-    return failure.diagnose(asNote);
-  }
-
   case RefKind::MutatingGetter: {
     InvalidMemberWithMutatingGetterInKeyPath failure(solution, Member,
                                                      getLocator());
@@ -1312,12 +1307,6 @@ AllowInvalidRefInKeyPath::forRef(ConstraintSystem &cs, Type baseType,
     if (!baseType->getRValueType()->is<AnyMetatypeType>())
       return AllowInvalidRefInKeyPath::create(
           cs, baseType, RefKind::StaticMember, member, locator);
-  }
-
-  // Referencing enum cases in key path is not currently allowed.
-  if (isa<EnumElementDecl>(member)) {
-    return AllowInvalidRefInKeyPath::create(cs, baseType, RefKind::EnumCase,
-                                            member, locator);
   }
 
   if (auto *storage = dyn_cast<AbstractStorageDecl>(member)) {
