@@ -2004,6 +2004,17 @@ public:
                                     PreparedArguments &&methodArgs,
                                     SubstitutionMap subs, SGFContext C);
 
+  RValue emitKeyPathEnumCase(SILLocation loc, ManagedValue base,
+                             CanType baseType, EnumElementDecl *method,
+                             Type methodTy, PreparedArguments &&methodArgs,
+                             SubstitutionMap subs, SGFContext C);
+
+  RValue emitSimpleKeyPathEnumCase(SILLocation loc, ManagedValue base,
+                                   CanType baseType, EnumElementDecl *method,
+                                   Type methodTy,
+                                   PreparedArguments &&methodArgs,
+                                   SubstitutionMap subs, SGFContext C);
+
   ManagedValue emitAsyncLetStart(SILLocation loc,
                                  SILValue taskOptions,
                                  AbstractClosureExpr *asyncLetEntryPoint,

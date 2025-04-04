@@ -7460,6 +7460,51 @@ RValue SILGenFunction::emitUnappliedKeyPathMethod(
   return RValue(*this, loc, partialType, partialMV);
 }
 
+/// Emit a call to a keypath method
+RValue SILGenFunction::emitSimpleKeyPathEnumCase(
+    SILLocation loc, ManagedValue base, CanType baseType,
+    EnumElementDecl *enumElt, Type methodTy, PreparedArguments &&methodArgs,
+    SubstitutionMap subs, SGFContext C) {
+  FormalEvaluationScope writebackScope(*this);
+
+  RValue selfRValue(*this, loc, baseType, base);
+  ArgumentSource selfArg(loc, std::move(selfRValue));
+
+  std::optional<Callee> callee =
+      Callee::forEnumElement(*this, SILDeclRef(enumElt), subs, loc);
+
+  CallEmission emission(*this, std::move(*callee), std::move(writebackScope));
+  emission.addSelfParam(loc, std::move(selfArg),
+                        callee->getSubstFormalType().getParams()[0]);
+  //  emission.addCallSite(loc, std::move(methodArgs));
+
+  return emission.apply(C);
+}
+
+RValue SILGenFunction::emitKeyPathEnumCase(SILLocation loc, ManagedValue base,
+                                           CanType baseType,
+                                           EnumElementDecl *enumElt,
+                                           Type methodTy,
+                                           PreparedArguments &&methodArgs,
+                                           SubstitutionMap subs, SGFContext C) {
+  FormalEvaluationScope writebackScope(*this);
+  SILDeclRef enumConstructorRef(enumElt);
+
+  SILFunction *constructorFn =
+      SGM.getFunction(enumConstructorRef, NotForDefinition);
+  auto functionRef = B.createFunctionRef(loc, constructorFn);
+
+  SmallVector<SILValue, 1> captures;
+
+  auto partial = B.createPartialApply(loc, functionRef, subs, captures,
+                                      ParameterConvention::Direct_Guaranteed);
+
+  CanType closureType = methodTy->getCanonicalType();
+
+  ManagedValue mv = emitManagedRValueWithCleanup(partial);
+  return RValue(*this, loc, closureType, mv);
+}
+
 /// Emit a call to an addressor.
 ///
 /// Returns an l-value managed value.
