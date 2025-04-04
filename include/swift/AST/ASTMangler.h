@@ -360,6 +360,9 @@ public:
   std::string mangleKeyPathAppliedMethodThunkHelper(
       const AbstractFunctionDecl *method, GenericSignature signature,
       CanType baseType, SubstitutionMap subs, ResilienceExpansion expansion);
+  std::string mangleKeyPathUnappliedEnumCaseThunkHelper(
+      const EnumElementDecl *enumElt, GenericSignature signature,
+      CanType baseType, SubstitutionMap subs, ResilienceExpansion expansion);
   std::string mangleKeyPathEqualsHelper(ArrayRef<CanType> indices,
                                         GenericSignature signature,
                                         ResilienceExpansion expansion);

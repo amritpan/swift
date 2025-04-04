@@ -513,6 +513,40 @@ std::string ASTMangler::mangleKeyPathUnappliedMethodThunkHelper(
   return finalize();
 }
 
+std::string ASTMangler::mangleKeyPathUnappliedEnumCaseThunkHelper(
+    const EnumElementDecl *enumElt, GenericSignature signature,
+    CanType baseType, SubstitutionMap subs, ResilienceExpansion expansion) {
+  beginMangling();
+  appendEntity(enumElt);
+
+  if (signature)
+    appendGenericSignature(signature);
+  appendType(baseType, signature);
+  //  if (isa<FuncDecl>(enumElt) || isa<ConstructorDecl>(enumElt)) {
+  //    // Methods can be generic, and different key paths could capture the
+  //    same
+  //    // method at different generic arguments.
+  //    for (auto sub : subs.getReplacementTypes()) {
+  //      sub = sub->mapTypeOutOfContext();
+  //
+  //      // FIXME: This seems wrong. We used to just mangle opened archetypes
+  //      as
+  //      // their interface type. Let's make that explicit now.
+  //      sub = sub.transformRec([](Type t) -> std::optional<Type> {
+  //        if (auto *openedExistential = t->getAs<ExistentialArchetypeType>())
+  //          return openedExistential->getInterfaceType();
+  //        return std::nullopt;
+  //      });
+  //
+  //      appendType(sub->getCanonicalType(), signature);
+  //    }
+  //  }
+  appendOperator("Tkmu");
+  if (expansion == ResilienceExpansion::Minimal)
+    appendOperator("q");
+  return finalize();
+}
+
 std::string ASTMangler::mangleKeyPathEqualsHelper(ArrayRef<CanType> indices,
                                                   GenericSignature signature,
                                                   ResilienceExpansion expansion) {
