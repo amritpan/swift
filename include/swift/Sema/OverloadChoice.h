@@ -120,7 +120,7 @@ class OverloadChoice {
   /// then this holds the identifier for the original member being
   /// looked up, as well as 1 bit tag which identifies whether this
   /// choice represents a key-path based dynamic lookup.
-  llvm::PointerIntPair<Identifier, 1, unsigned> DynamicMember;
+  llvm::PointerIntPair< llvm::PointerUnion<Identifier, DeclName*>, 1, unsigned> DynamicMember;
 
   /// This holds the kind of function reference.
   /// FIXME: This needs three bits. Can we pack them somewhere?
@@ -209,14 +209,20 @@ public:
   /// dynamic member lookup. The `ValueDecl` is a `subscript(dynamicMember:)`
   /// method.
   static OverloadChoice getDynamicMemberLookup(Type base, ValueDecl *value,
-                                               Identifier name,
+                                               DeclName* name,
                                                bool isKeyPathBased) {
     OverloadChoice result;
     result.BaseAndDeclKind.setPointer(base);
     result.DeclOrKind = value;
-    result.DynamicMember.setPointer(name);
+    result.DynamicMember.setPointer(
+        name->isCompoundName()
+            ? llvm::PointerUnion<Identifier, DeclName *>(name)
+            : llvm::PointerUnion<Identifier, DeclName *>(
+                  name->getBaseIdentifier()));
     result.DynamicMember.setInt(isKeyPathBased);
-    result.TheFunctionRefInfo = FunctionRefInfo::singleBaseNameApply();
+    result.TheFunctionRefInfo = name->isCompoundName()
+                                    ? FunctionRefInfo::singleCompoundNameApply()
+                                    : FunctionRefInfo::singleBaseNameApply();
     return result;
   }
 
@@ -227,7 +233,7 @@ public:
   
   /// Determines the kind of overload choice this is.
   OverloadChoiceKind getKind() const {
-    if (!DynamicMember.getPointer().empty()) {
+    if (!DynamicMember.getPointer().isNull()) {
       return DynamicMember.getInt()
                  ? OverloadChoiceKind::KeyPathDynamicMemberLookup
                  : OverloadChoiceKind::DynamicMemberLookup;
@@ -290,6 +296,19 @@ public:
 
   /// Get the name of the overload choice.
   DeclName getName() const;
+  
+  ///
+  bool hasArgumentLabels() const {
+    return DynamicMember.getPointer().is<DeclName*>();
+  }
+
+  ///
+  DeclName getNameFromDynamicMember() const {
+    auto P = DynamicMember.getPointer();
+    return P.is<Identifier>()
+               ? DeclName(P.get<Identifier>())
+               : *P.get<DeclName *>();
+  }
 
   /// Retrieve the tuple index that corresponds to this overload
   /// choice.
