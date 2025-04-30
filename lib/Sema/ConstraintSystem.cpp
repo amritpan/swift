@@ -1983,7 +1983,7 @@ DeclName OverloadChoice::getName() const {
 
     case OverloadChoiceKind::DynamicMemberLookup:
     case OverloadChoiceKind::KeyPathDynamicMemberLookup:
-      return DeclName(DynamicMember.getPointer());
+      return getNameFromDynamicMember();
 
     case OverloadChoiceKind::MaterializePack:
     case OverloadChoiceKind::TupleIndex:
