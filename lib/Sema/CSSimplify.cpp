@@ -10794,8 +10794,9 @@ performMemberLookup(ConstraintKind constraintKind, DeclNameRef memberName,
 
         if (!(args && args->isUnary() &&
               args->getLabel(0) == getASTContext().Id_dynamicMember)) {
+          DeclName declName(ctx.getIdentifier("subscript"));
           return OverloadChoice::getDynamicMemberLookup(
-              baseTy, subscript, ctx.getIdentifier("subscript"),
+              baseTy, subscript, &declName,
               /*isKeyPathBased=*/true);
         }
       }
@@ -10909,7 +10910,7 @@ performMemberLookup(ConstraintKind constraintKind, DeclNameRef memberName,
   // `subscript(dynamicMember:)` method and pass the member name as a string
   // parameter.
   if (constraintKind == ConstraintKind::ValueMember &&
-      memberName.isSimpleName() && !memberName.isSpecial() &&
+      (memberName.isSimpleName() || memberName.isCompoundName()) && !memberName.isSpecial() &&
       instanceTy->hasDynamicMemberLookupAttribute()) {
     const auto &candidates = result.ViableCandidates;
 
@@ -10927,22 +10928,24 @@ performMemberLookup(ConstraintKind constraintKind, DeclNameRef memberName,
           includeInaccessibleMembers);
 
       // Reflect the candidates found as `DynamicMemberLookup` results.
-      auto name = memberName.getBaseIdentifier();
+      auto name = memberName.getFullName();
+      auto *storedName = new (ctx.Allocate<DeclName>()) DeclName(name);
       for (const auto &candidate : subscripts.ViableCandidates) {
         auto *SD = cast<SubscriptDecl>(candidate.getDecl());
         bool isKeyPathBased = isValidKeyPathDynamicMemberLookup(SD);
 
         if (isValidStringDynamicMemberLookup(SD, DC->getParentModule()) ||
-            isKeyPathBased)
+            isKeyPathBased) {
           result.addViable(OverloadChoice::getDynamicMemberLookup(
-              baseTy, SD, name, isKeyPathBased));
+              baseTy, SD, storedName, isKeyPathBased));
+        }
       }
 
       for (auto index : indices(subscripts.UnviableCandidates)) {
         auto *SD =
             cast<SubscriptDecl>(subscripts.UnviableCandidates[index].getDecl());
         auto choice = OverloadChoice::getDynamicMemberLookup(
-            baseTy, SD, name, isValidKeyPathDynamicMemberLookup(SD));
+            baseTy, SD, storedName, isValidKeyPathDynamicMemberLookup(SD));
         result.addUnviable(choice, subscripts.UnviableReasons[index]);
       }
     }
