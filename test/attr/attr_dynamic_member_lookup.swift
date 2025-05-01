@@ -573,6 +573,11 @@ struct MethodAndInitializerTest {
   init(value: Int) { self.value = value }
   func instanceMethod() -> String { return "InstanceMethod" }
   static func staticMethod() -> Int { return 42 }
+  
+  func subtract(this: Int) -> Int { this + this - 1}
+  func subtract(that: Int) -> Int { that + that - 2}
+  func multiply(this: Int, that: Int) -> Int { this * that }
+  func divide(_ this: Int, _ that: Int) -> Int { this / that }
 }
 
 @dynamicMemberLookup
@@ -604,6 +609,13 @@ func test_method_and_init_lens() {
 
   let initializer = MethodAndInitializerTest.init
   let _ = MethodAndInitializerLens(value: initializer(20), type: MethodAndInitializerTest.self)
+  
+  let subtractThisWithParamNoArg = methodLens.subtract(this:)
+  let _ = subtractThisWithParamNoArg(10)
+  let subtractThatWithParamNoArg = methodLens.subtract(that:)
+  let _ = subtractThatWithParamNoArg(20)
+  let _ = methodLens.multiply(this: 4, that: 6)
+  let _ = methodLens.divide(9, 3)
 }
 
 @dynamicMemberLookup
