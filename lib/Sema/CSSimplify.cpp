@@ -1495,6 +1495,37 @@ static ConstraintSystem::TypeMatchResult matchCallArguments(
   if (auto overload = cs.findSelectedOverloadFor(calleeLocator)) {
     callee = overload->choice.getDeclOrNull();
     appliedSelf = hasAppliedSelf(cs, overload->choice);
+
+    // If this is a KeyPathDynamicMemberLookup, reconstruct params with labels
+    // from the overload choice name, but only if we're matching the actual
+    // method call (not the implicit subscript call)
+    if (overload->choice.getKind() ==
+        OverloadChoiceKind::KeyPathDynamicMemberLookup) {
+      auto name = overload->choice.getName();
+      if (name.isCompoundName() && argList) {
+        auto argNames = name.getArgumentNames();
+        // Check if the argList labels match the compound name's labels
+        // This distinguishes between calling the actual method (labels match)
+        // vs calling the subscript (labels don't match, e.g., 'dynamicMember')
+        if (argList->size() == argNames.size()) {
+          bool labelsMatch = true;
+          for (unsigned i = 0; i < argList->size(); ++i) {
+            if (argList->getLabel(i) != argNames[i]) {
+              labelsMatch = false;
+              break;
+            }
+          }
+
+          if (labelsMatch && argNames.size() == params.size()) {
+            SmallVector<AnyFunctionType::Param, 8> newParams;
+            for (unsigned i = 0; i < params.size(); ++i) {
+              newParams.push_back(params[i].withLabel(argNames[i]));
+            }
+            params = newParams;
+          }
+        }
+      }
+    }
   }
 
   ParameterListInfo paramInfo(params, callee, appliedSelf);
@@ -10929,6 +10960,30 @@ performMemberLookup(ConstraintKind constraintKind, DeclNameRef memberName,
 
       // Reflect the candidates found as `DynamicMemberLookup` results.
       auto name = memberName.getFullName();
+
+      // Try to construct compound name from parent CallExpr
+      if (memberName.isSimpleName()) {
+        if (auto *memberExpr = getAsExpr(memberLocator->getAnchor())) {
+          if (auto *parentExpr = getParentExpr(memberExpr)) {
+            if (auto *callExpr = getAsExpr<CallExpr>(parentExpr)) {
+              auto *semanticsExpr =
+                  callExpr->getFn()->getSemanticsProvidingExpr();
+              if (semanticsExpr == memberExpr) {
+                if (auto *argList = callExpr->getArgs()) {
+                  SmallVector<Identifier, 4> labels;
+                  for (unsigned i = 0; i < argList->size(); ++i) {
+                    labels.push_back(argList->getLabel(i));
+                  }
+                  if (!labels.empty()) {
+                    name = DeclName(ctx, name.getBaseIdentifier(), labels);
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+
       auto *storedName = new (ctx.Allocate<DeclName>()) DeclName(name);
       for (const auto &candidate : subscripts.ViableCandidates) {
         auto *SD = cast<SubscriptDecl>(candidate.getDecl());
